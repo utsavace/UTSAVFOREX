@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: quant-desk
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.cjs
+    envVars:
+      - key: NODE_ENV
+        value: production

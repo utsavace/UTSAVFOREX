@@ -5,6 +5,7 @@ import { fetchHistory, type Candle } from "./server/market";
 import { walkForward, candidateSignals, divergence, type Gate } from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
+import { registerScoreBacktest } from "./server/scorebacktest";
 
 const app = express();
 app.use(express.json());
@@ -436,6 +437,7 @@ journalRoutes("/api/trades", LIVE_JOURNAL, false);
 journalRoutes("/api/playback/trades", PB_JOURNAL, true);
 
 registerJournalRoutes(app);
+registerScoreBacktest(app);
 
 // ==================== BOOT ====================
 async function start() {

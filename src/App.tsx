@@ -702,6 +702,8 @@ export default function App() {
 
             {tab === 1 && <OverviewTable res={displayRows} onTake={(r) => takeTrade(r, "overview")} onChart={loadChart} pbOn={pbOn} />}
 
+            {tab === 1 && !pbOn && <ScoreBacktest qs={qs} />}
+
             {tab === 2 && (
               <ResultTable res={displayRows} cotMap={pbOn ? {} : cotMap} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
                 onTake={(r) => takeTrade(r, "optimizer")} onChart={loadChart}
@@ -893,6 +895,59 @@ const BUCKET_STYLE: Record<string, any> = {
   yellow: { color: "#3a2c05", background: "#f2c14e" },
   red: { color: "#c9d3df", background: "rgba(148,163,184,0.18)" },
 };
+
+function ScoreBacktest({ qs }: { qs: (extra?: Record<string, any>) => string }) {
+  const [busy, setBusy] = useState(false);
+  const [data, setData] = useState<any>(null);
+  const [err, setErr] = useState("");
+  const run = async () => {
+    setBusy(true); setErr(""); setData(null);
+    try {
+      const r = await fetch(`/api/score-backtest?${qs({ piv: 2, rsiP: 14 })}&t=${Date.now()}`);
+      const d = await r.json();
+      if (d.ok) setData(d); else setErr(d.error || "backtest fail");
+    } catch { setErr("Backtest request fail — free tier slow ho sakta hai, dobara try karo."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ marginTop: 18, borderTop: "1px solid var(--line)", paddingTop: 16 }}>
+      <button className="btn" style={{ width: "auto", padding: "10px 20px" }} disabled={busy} onClick={run}>
+        {busy ? "⏳ Backtesting… (1-2 min lag sakta hai)" : "📊 Backtest score — pichhle 1 saal me kis score ka kya hua"}
+      </button>
+      {err && <div className="banner" style={{ marginTop: 12 }}>{err}</div>}
+      {data && (
+        <div style={{ marginTop: 12 }}>
+          <div className="conv-summary">
+            <b>{data.signalsFound}</b> live signals mile ({data.testedDates} points checked). Win rate = 🎯 ÷ (🎯 + 🛑).
+            {" "}Ye <b>COT ke bina</b> score hai aur overlapping signals count hue — <b>indication</b> samjho, guarantee nahi.
+          </div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th>Score bucket</th><th>Signals</th><th>🎯 Target</th><th>🛑 Stop</th><th>⏳ Timeout</th><th>Win rate</th><th>Avg return</th>
+              </tr></thead>
+              <tbody>
+                {data.buckets.map((b: any, i: number) => (
+                  <tr key={i} className={b.label === "70+" ? "hot" : ""}>
+                    <td className="sym">{b.label}</td>
+                    <td>{b.count}</td>
+                    <td className="pos">{b.target}</td>
+                    <td className="neg">{b.stop}</td>
+                    <td className="muted">{b.timeout}</td>
+                    <td><b>{b.winRate == null ? "—" : b.winRate + "%"}</b></td>
+                    <td className={b.avgReturn > 0 ? "pos" : b.avgReturn < 0 ? "neg" : ""}>{b.avgReturn == null ? "—" : (b.avgReturn > 0 ? "+" : "") + b.avgReturn + "%"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.failedSymbols?.length ? <div className="note" style={{ marginTop: 6 }}>Data nahi mila: {data.failedSymbols.join(", ")}</div> : null}
+          <div className="note" style={{ marginTop: 6 }}>{data.note}</div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function OverviewTable({ res, onTake, onChart, pbOn }: { res: any[]; onTake: (r: any) => void; onChart: (s: string) => void; pbOn: boolean }) {
   if (!res.length) return <div className="empty">Load overview to see every asset ranked by conviction.</div>;

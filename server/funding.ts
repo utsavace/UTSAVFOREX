@@ -1,55 +1,57 @@
 import type { Express } from "express";
+import { fetchHistory, type Candle } from "./market";
 
-// Crypto funding-rate research. Data: Bybit v5 public API (no key, US-accessible).
-// Thesis to test: when perp funding is very HIGH (crowd over-long) → future returns fall (short edge);
-// when very LOW/negative (crowd over-short) → future returns rise (long edge). We just MEASURE it.
+// Crypto funding-rate research. Funding from OKX (public, no key, reachable), price from Yahoo daily.
+// Thesis: very HIGH funding (crowd over-long) -> future returns fall (short edge); very LOW -> long edge.
 
 const H = { "User-Agent": "Mozilla/5.0", "Accept": "application/json" };
 
-interface FR { t: number; rate: number; }
-interface KL { t: number; open: number; high: number; low: number; close: number; }
+const MAP: Record<string, { okx: string; yf: string }> = {
+  BTC: { okx: "BTC-USDT-SWAP", yf: "BTC-USD" },
+  ETH: { okx: "ETH-USDT-SWAP", yf: "ETH-USD" },
+  SOL: { okx: "SOL-USDT-SWAP", yf: "SOL-USD" },
+  BNB: { okx: "BNB-USDT-SWAP", yf: "BNB-USD" },
+  XRP: { okx: "XRP-USDT-SWAP", yf: "XRP-USD" },
+};
 
-async function bybitFunding(symbol: string): Promise<FR[]> {
+interface FR { t: number; rate: number; }
+
+async function okxFunding(instId: string): Promise<FR[]> {
   const out: FR[] = [];
-  let end = Date.now();
-  for (let page = 0; page < 8; page++) {
-    const url = `https://api.bybit.com/v5/market/funding/history?category=linear&symbol=${symbol}&limit=200&endTime=${end}`;
+  let after = "";
+  for (let page = 0; page < 16; page++) {
+    const url = `https://www.okx.com/api/v5/public/funding-rate-history?instId=${instId}&limit=100${after ? `&after=${after}` : ""}`;
     let j: any;
     try { const r = await fetch(url, { headers: H }); if (!r.ok) break; j = await r.json(); } catch { break; }
-    const list: any[] = j?.result?.list || [];
-    if (!list.length) break;
-    for (const x of list) out.push({ t: Number(x.fundingRateTimestamp), rate: Number(x.fundingRate) });
-    const oldest = Math.min(...list.map((x) => Number(x.fundingRateTimestamp)));
-    end = oldest - 1;
-    if (list.length < 200) break;
+    const data: any[] = j?.data || [];
+    if (!data.length) break;
+    for (const x of data) out.push({ t: Number(x.fundingTime), rate: Number(x.fundingRate) });
+    after = data[data.length - 1].fundingTime;
+    if (data.length < 100) break;
   }
   return out.sort((a, b) => a.t - b.t);
 }
 
-async function bybitKlines(symbol: string): Promise<KL[]> {
-  const url = `https://api.bybit.com/v5/market/kline?category=linear&symbol=${symbol}&interval=480&limit=1000`;
-  try {
-    const r = await fetch(url, { headers: H }); if (!r.ok) return [];
-    const j: any = await r.json();
-    const list: any[] = j?.result?.list || [];
-    return list.map((x) => ({ t: Number(x[0]), open: +x[1], high: +x[2], low: +x[3], close: +x[4] })).sort((a, b) => a.t - b.t);
-  } catch { return []; }
-}
-
-function entryIdx(kl: KL[], ft: number): number {
-  let lo = 0, hi = kl.length - 1, ans = -1;
-  while (lo <= hi) { const m = (lo + hi) >> 1; if (kl[m].t >= ft) { ans = m; hi = m - 1; } else lo = m + 1; }
-  return ans;
-}
-
-function analyze(funding: FR[], kl: KL[], hold: number) {
-  const pairs: { rate: number; fwd: number }[] = [];
+function toDaily(funding: FR[]): { date: string; rate: number }[] {
+  const by = new Map<string, { sum: number; n: number }>();
   for (const f of funding) {
-    const i = entryIdx(kl, f.t);
-    if (i < 0 || i + hold >= kl.length) continue;
-    const ep = kl[i].open, xp = kl[i + hold].open;
+    const d = new Date(f.t).toISOString().slice(0, 10);
+    const e = by.get(d) || { sum: 0, n: 0 };
+    e.sum += f.rate; e.n++; by.set(d, e);
+  }
+  return [...by.entries()].map(([date, e]) => ({ date, rate: e.sum / e.n })).sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+function analyze(daily: { date: string; rate: number }[], price: Candle[], holdDays: number) {
+  const idxByDate = new Map<string, number>();
+  price.forEach((c, i) => idxByDate.set(c.date, i));
+  const pairs: { rate: number; fwd: number }[] = [];
+  for (const d of daily) {
+    const i = idxByDate.get(d.date);
+    if (i == null || i + holdDays >= price.length) continue;
+    const ep = price[i].close, xp = price[i + holdDays].close;
     if (!(ep > 0)) continue;
-    pairs.push({ rate: f.rate, fwd: (xp - ep) / ep * 100 });
+    pairs.push({ rate: d.rate, fwd: (xp - ep) / ep * 100 });
   }
   if (pairs.length < 30) return null;
 
@@ -60,11 +62,12 @@ function analyze(funding: FR[], kl: KL[], hold: number) {
   const bucket = (name: string, keep: (r: number) => boolean) => {
     const g = pairs.filter((p) => keep(p.rate));
     const n = g.length || 1;
-    const avg = g.reduce((a, b) => a + b.fwd, 0) / n;
-    const up = g.filter((p) => p.fwd > 0).length;
-    return { name, count: g.length, avgFwd: +avg.toFixed(3), pctUp: +((100 * up) / n).toFixed(0) };
+    return {
+      name, count: g.length,
+      avgFwd: +(g.reduce((a, b) => a + b.fwd, 0) / n).toFixed(3),
+      pctUp: +((100 * g.filter((p) => p.fwd > 0).length) / n).toFixed(0),
+    };
   };
-
   const buckets = [
     bucket("very high funding (top 10%)", (r) => r >= p90),
     bucket("high (10-25%)", (r) => r >= p75 && r < p90),
@@ -82,29 +85,33 @@ function analyze(funding: FR[], kl: KL[], hold: number) {
     winRate: +((100 * trades.filter((r) => r > 0).length) / tN).toFixed(1),
     avgReturn: +(trades.reduce((a, b) => a + b, 0) / tN).toFixed(3),
   };
-
   return { pairs: pairs.length, buckets, contrarian };
 }
 
 export function registerFundingTest(app: Express) {
   app.get("/api/funding-test", async (req, res) => {
-    const symbols = String(req.query.symbols || "BTCUSDT,ETHUSDT").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-    const holds = String(req.query.holds || "3,9").split(",").map((h) => Number(h)).filter((h) => h > 0);
+    const syms = String(req.query.symbols || "BTC,ETH").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const holds = String(req.query.holds || "1,3").split(",").map((h) => Number(h)).filter((h) => h > 0);
+    const startSec = Math.floor(new Date("2021-01-01T00:00:00Z").getTime() / 1000);
     const out: any[] = [];
-    for (const sym of symbols) {
+    for (const s of syms) {
+      const m = MAP[s];
+      if (!m) { out.push({ symbol: s, error: "unsupported (BTC/ETH/SOL/BNB/XRP only)" }); continue; }
       try {
-        const [funding, kl] = await Promise.all([bybitFunding(sym), bybitKlines(sym)]);
-        if (!funding.length || !kl.length) { out.push({ symbol: sym, error: "no data (Bybit reachable? symbol sahi?)" }); continue; }
+        const [funding, price] = await Promise.all([okxFunding(m.okx), fetchHistory(m.yf, startSec, "1d")]);
+        if (!funding.length) { out.push({ symbol: s, error: "OKX funding not reachable" }); continue; }
+        if (!price.length) { out.push({ symbol: s, error: "price not reachable" }); continue; }
+        const daily = toDaily(funding);
         const byHold: any = {};
-        for (const h of holds) byHold[`${h}p_${(h * 8) / 24 || 1}d`] = analyze(funding, kl, h);
-        out.push({ symbol: sym, fundingPoints: funding.length, klines: kl.length, holds: byHold });
+        for (const h of holds) byHold[`${h}d`] = analyze(daily, price, h);
+        out.push({ symbol: s, fundingDays: daily.length, priceDays: price.length, holds: byHold });
       } catch (e: any) {
-        out.push({ symbol: sym, error: e?.message || "fetch failed" });
+        out.push({ symbol: s, error: e?.message || "fetch failed" });
       }
     }
     res.json({
       ok: true, results: out,
-      note: "avgFwd = us funding-level ke baad agle N period ka average % move (LONG perspective). High-funding bucket ka avgFwd NEGATIVE ho to shorting edge deta hai. contrarian = top10% short + bottom10% long.",
+      note: "avgFwd = us din ke funding level ke baad agle N din ka average % move (LONG perspective). High-funding bucket ka avgFwd NEGATIVE ho to shorting edge. contrarian = top10% short + bottom10% long. Funding: OKX, price: Yahoo daily.",
     });
   });
 }

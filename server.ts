@@ -6,6 +6,7 @@ import { walkForward, candidateSignals, divergence, type Gate } from "./server/s
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
+import { registerFundingTest } from "./server/funding";
 
 const app = express();
 app.use(express.json());
@@ -438,6 +439,7 @@ journalRoutes("/api/playback/trades", PB_JOURNAL, true);
 
 registerJournalRoutes(app);
 registerScoreBacktest(app);
+registerFundingTest(app);
 
 // ==================== BOOT ====================
 async function start() {

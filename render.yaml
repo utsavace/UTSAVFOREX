@@ -3,7 +3,7 @@ services:
     name: quant-desk
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/server.cjs
     envVars:
       - key: NODE_ENV

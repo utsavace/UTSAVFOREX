@@ -53,6 +53,7 @@ export function MyTrades({
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState("");
+  const [confirmId, setConfirmId] = useState<string | null>(null); // inline delete confirm (iframe-safe)
 
   const disp = (t: JournalTrade) => nameMap[t.symbol] || t.name || t.symbol;
 
@@ -102,27 +103,30 @@ export function MyTrades({
   }, [isPb ? asOfDate : "live"]);
 
   const manualClose = async (t: JournalTrade) => {
+    // playback: exit at the virtual day's close (server decides price — no prompt needed)
     if (isPb) {
-      if (!window.confirm(`${disp(t)} — ${asOfDate} ke CLOSE price pe exit karein? (real jaisa: price cherry-pick nahi kar sakte)`)) return;
       const r = await fetch(`${base}/close`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, asOfDate }) });
       const d = await r.json();
       if (d.ok) { setMsg(`✅ ${disp(t)} closed @ ${d.trade.exitPrice} (${asOfDate} close)`); load(); } else setMsg(`❌ ${d.error}`);
       return;
     }
-    const input = window.prompt(`${disp(t)} — kis price pe exit kiya? (entry ${t.entryPrice})`, String(t.currentPrice ?? t.entryPrice ?? ""));
-    if (input === null) return;
-    const p = Number(input);
-    if (!isFinite(p) || p <= 0) { setMsg("❌ Valid price daalo"); return; }
+    // live: exit at the latest known price (currentPrice). window.prompt iframe me block ho jata hai,
+    // isliye ab current market price pe hi manual-close hota hai.
+    const p = Number(t.currentPrice ?? t.entryPrice ?? 0);
+    if (!isFinite(p) || p <= 0) { setMsg("❌ Current price nahi mila — pehle 'Check SL / Target now' dabao"); return; }
     const r = await fetch(`${base}/close`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, exitPrice: p }) });
     const d = await r.json();
-    if (d.ok) { setMsg(`✅ ${disp(t)} manually closed @ ${p}`); load(); } else setMsg(`❌ ${d.error}`);
+    if (d.ok) { setMsg(`✅ ${disp(t)} closed @ ${p} (latest price)`); load(); } else setMsg(`❌ ${d.error}`);
   };
 
+  // Two-tap delete: first tap arms (button turns into "Confirm?"), second tap deletes.
+  // window.confirm iframe/AI-Studio sandbox me block ho jata hai, isliye inline confirm.
   const remove = async (t: JournalTrade) => {
-    if (!window.confirm(`${disp(t)} ka journal entry delete karein? Ye wapas nahi aayega.`)) return;
+    if (confirmId !== t.id) { setConfirmId(t.id); setMsg("⚠️ Delete confirm karne ke liye dobara ✕ dabao"); return; }
+    setConfirmId(null);
     const r = await fetch(`${base}/delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id }) });
     const d = await r.json();
-    if (d.ok) { setAll(Array.isArray(d.trades) ? d.trades : []); } else setMsg(`❌ ${d.error}`);
+    if (d.ok) { setAll(Array.isArray(d.trades) ? d.trades : []); setMsg(`🗑 ${disp(t)} journal se hata diya`); } else setMsg(`❌ ${d.error}`);
   };
 
   const open = trades.filter((t) => t.status === "OPEN" || t.status === "PENDING");
@@ -183,12 +187,14 @@ export function MyTrades({
           <button
             className="toggle-filter-btn"
             onClick={async () => {
-              if (!window.confirm("Pura practice journal reset karein?")) return;
+              if (confirmId !== "RESET") { setConfirmId("RESET"); setMsg("⚠️ Pura practice journal reset karne ke liye dobara dabao"); return; }
+              setConfirmId(null);
               await fetch(`${base}/reset`, { method: "POST" });
+              setMsg("🗑 Practice journal reset ho gaya");
               load();
             }}
           >
-            🗑 Reset practice journal
+            {confirmId === "RESET" ? "⚠️ Confirm reset?" : "🗑 Reset practice journal"}
           </button>
         )}
         {msg && <span style={{ fontSize: "12px", color: "#8e9ba9", fontFamily: "monospace" }}>{msg}</span>}
@@ -230,8 +236,8 @@ export function MyTrades({
                     <td style={td}>{px(t.currentPrice)}</td>
                     <td style={{ ...td, color: (t.unrealizedPct ?? 0) >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(t.unrealizedPct)}</td>
                     <td style={td}>
-                      {t.status !== "PENDING" && <><button style={btn} onClick={() => manualClose(t)}>{isPb ? "Exit @ day close" : "Exit manually"}</button>{" "}</>}
-                      <button style={{ ...btn, color: "#ef4444" }} onClick={() => remove(t)}>✕</button>
+                      {t.status !== "PENDING" && <><button style={btn} onClick={() => manualClose(t)}>{isPb ? "Exit @ day close" : "Exit @ latest"}</button>{" "}</>}
+                      <button style={{ ...btn, color: "#ef4444", ...(confirmId === t.id ? { background: "#ef4444", color: "#fff", borderColor: "#ef4444" } : {}) }} onClick={() => remove(t)}>{confirmId === t.id ? "Confirm?" : "✕"}</button>
                     </td>
                   </tr>
                 ))}
@@ -288,7 +294,7 @@ export function MyTrades({
                       <td style={td}>{px(t.exitPrice)}</td>
                       <td style={{ ...td, color: (t.returnPct ?? 0) >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}>{fmtPct(t.returnPct)}</td>
                       <td style={td}><span style={{ fontSize: "10.5px", padding: "2px 7px", borderRadius: "4px", color: m.color, background: m.bg, border: `1px solid ${m.color}44`, fontWeight: 700 }}>{m.label}</span></td>
-                      <td style={td}><button style={{ ...btn, color: "#ef4444" }} onClick={() => remove(t)}>✕</button></td>
+                      <td style={td}><button style={{ ...btn, color: "#ef4444", ...(confirmId === t.id ? { background: "#ef4444", color: "#fff", borderColor: "#ef4444" } : {}) }} onClick={() => remove(t)}>{confirmId === t.id ? "Confirm?" : "✕"}</button></td>
                     </tr>
                   );
                 })}

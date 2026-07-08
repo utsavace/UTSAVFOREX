@@ -4,6 +4,7 @@ import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
 import { walkForward, candidateSignals, divergence, type Gate } from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
+import { registerJournalRoutes } from "./server/journal";
 
 const app = express();
 app.use(express.json());
@@ -433,6 +434,8 @@ function journalRoutes(base: string, file: string, isPlayback: boolean) {
 
 journalRoutes("/api/trades", LIVE_JOURNAL, false);
 journalRoutes("/api/playback/trades", PB_JOURNAL, true);
+
+registerJournalRoutes(app);
 
 // ==================== BOOT ====================
 async function start() {

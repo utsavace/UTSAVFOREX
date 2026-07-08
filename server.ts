@@ -168,8 +168,8 @@ app.get("/api/overview", async (req, res) => {
       const opt = walkForward(c, candidateSignals(c), HOLD, ALLOW_SHORT, gate);
       const { bull, bear } = divergence(c, 14, 2, 2);
       const div = walkForward(c, [{ name: "RSI Divergence", long: bull, short: bear }], HOLD, ALLOW_SHORT, gate);
-      row.opt = opt && { strategy: opt.strategy, live: opt.live, isPF: opt.isPF, oosPF: opt.oosPF, qualified: opt.qualified, entry: opt.entry, stop: opt.stop, target: opt.target };
-      row.div = div && { live: div.live, oosPF: div.oosPF, qualified: div.qualified, entry: div.entry, stop: div.stop, target: div.target };
+      row.opt = opt && { strategy: opt.strategy, live: opt.live, isPF: opt.isPF, oosPF: opt.oosPF, oosTrades: opt.oosTrades, qualified: opt.qualified, entry: opt.entry, stop: opt.stop, target: opt.target };
+      row.div = div && { live: div.live, oosPF: div.oosPF, oosTrades: div.oosTrades, qualified: div.qualified, entry: div.entry, stop: div.stop, target: div.target };
     } catch (e: any) { out.push({ symbol: sym, error: e?.message || "fetch failed" }); continue; }
     if (cotSupported(sym)) {
       try { row.cot = (await fetchCot(sym, 52)) || null; } catch { row.cot = null; }

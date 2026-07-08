@@ -330,3 +330,10 @@ td.sym.clickable:hover { color: var(--gold); text-decoration: underline dotted; 
   margin-top: 18px; font-family: var(--mono); font-size: 10.5px; color: var(--text-3);
   line-height: 1.7; border-top: 1px solid var(--line-soft); padding-top: 12px;
 }
+
+/* Conviction score (Overview) */
+.conv-summary { margin: 0 0 14px; padding: 11px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+  color: var(--text-2); background: var(--panel-2); border: 1px solid var(--line); }
+.conv-summary b { color: var(--text); }
+.conv-badge { display: inline-block; min-width: 30px; text-align: center; font-family: var(--mono);
+  font-weight: 700; font-size: 12.5px; padding: 3px 8px; border-radius: 7px; }

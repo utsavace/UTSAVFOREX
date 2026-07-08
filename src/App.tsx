@@ -840,45 +840,115 @@ function LiveSetups({ res, onTake }: { res: any[]; onTake: (r: any) => void }) {
   );
 }
 
+// ---------------- Conviction Score (0-100) ----------------
+// Combines: OOS strength of each module (trade-count sanity), module agreement,
+// live signal presence, COT agreement, and rare full-gate PASS. Flat = capped low.
+function convictionScore(r: any): { score: number; bucket: "green" | "yellow" | "red"; live: string | null; reasons: string[]; warn: string[] } {
+  const o = r.opt, d = r.div, cot = r.cot;
+  const reasons: string[] = [], warn: string[] = [];
+  if (!o && !d) return { score: 0, bucket: "red", live: null, reasons, warn };
+
+  const isLive = (x: any) => x && (x.live === "LONG" || x.live === "SHORT");
+  const optLive = isLive(o) ? o.live : null;
+  const divLive = isLive(d) ? d.live : null;
+  const live: string | null = optLive || divLive;
+
+  // credible PF: needs enough OOS trades and not a fake sentinel (999)
+  const credPF = (x: any) => (x && x.oosTrades >= 12 && x.oosPF > 0 && x.oosPF < 50 ? x.oosPF : null);
+  const optPF = credPF(o), divPF = credPF(d);
+  const q = (pf: number) => Math.max(0, Math.min(25, (pf - 1) * 25)); // pf1→0, 1.5→12.5, 2→25
+
+  let score = 0;
+  if (optPF) score += q(optPF);
+  if (divPF) score += q(divPF);
+
+  // both modules credible & healthy → agreement bonus
+  if (optPF && divPF) {
+    if (optPF >= 1.3 && divPF >= 1.3) { score += 15; reasons.push("dono module OOS healthy"); }
+    else score += 6;
+  }
+  // live signal is what makes it actionable
+  if (live) { score += 20; reasons.push(`live ${live} signal`); }
+  // COT agreement (context)
+  if (cot && cot.contrarian && cot.contrarian !== "-" && live && cot.contrarian === live) {
+    score += 15; reasons.push("COT context bhi isi taraf");
+  } else if (cot && cot.bias === "neutral") { score += 4; }
+  // rare full-gate PASS
+  if ((o && o.qualified) || (d && d.qualified)) { score += 20; reasons.push("gate PASS (IS+OOS)"); }
+
+  // caps / penalties
+  if (!live) { score = Math.min(score, 35); warn.push("koi live signal nahi (abhi entry nahi)"); }
+  const liveTr = optLive ? o?.oosTrades : divLive ? d?.oosTrades : 0;
+  if (live && liveTr != null && liveTr < 10) { score = Math.min(score, 40); warn.push("bahut kam OOS trades — bharosa kam"); }
+  const hasFake = (o && o.oosPF >= 50) || (d && d.oosPF >= 50);
+  if (hasFake) warn.push("ek PF fake hai (bahut kam trades)");
+
+  score = Math.round(Math.max(0, Math.min(100, score)));
+  const bucket = score >= 70 ? "green" : score >= 45 ? "yellow" : "red";
+  return { score, bucket, live, reasons, warn };
+}
+
+const BUCKET_STYLE: Record<string, any> = {
+  green: { color: "#052e1a", background: "#2dd4a7" },
+  yellow: { color: "#3a2c05", background: "#f2c14e" },
+  red: { color: "#c9d3df", background: "rgba(148,163,184,0.18)" },
+};
+
 function OverviewTable({ res, onTake, onChart, pbOn }: { res: any[]; onTake: (r: any) => void; onChart: (s: string) => void; pbOn: boolean }) {
-  if (!res.length) return <div className="empty">Load overview to see every asset's Optimizer + Divergence + COT at a glance.</div>;
+  if (!res.length) return <div className="empty">Load overview to see every asset ranked by conviction.</div>;
+
+  // score every row, sort best-first (errors last)
+  const scored = res.map((r) => ({ r, s: r.error ? null : convictionScore(r) }));
+  scored.sort((a, b) => (b.s?.score ?? -1) - (a.s?.score ?? -1));
+  const greens = scored.filter((x) => x.s?.bucket === "green").length;
+  const yellows = scored.filter((x) => x.s?.bucket === "yellow").length;
+
   return (
-    <div className="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Asset</th>
-            <th>Optimizer</th><th>Opt signal</th><th>Opt OOS PF</th>
-            <th>Divergence</th><th>Div OOS PF</th>
-            <th>COT</th><th>Note</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {res.map((r, i) => {
-            if (r.error) return (
-              <tr key={i}><td className="sym">{NAME[r.symbol] || r.symbol}</td>
-                <td colSpan={8} className="err" style={{ textAlign: "left" }}>{r.error}</td></tr>
-            );
-            const o = r.opt, d = r.div;
-            const optAct = actionable(o), divAct = actionable(d);
-            const note = optAct ? "Opt setup live" : divAct ? "Div setup live" : "context only";
-            return (
-              <tr key={i} className={optAct || divAct ? "hot" : ""}>
-                <td className="sym clickable" onClick={() => onChart(r.symbol)} title="Chart dekho">{NAME[r.symbol] || r.symbol}</td>
-                <td className="muted" style={{ textAlign: "left" }}>{o?.strategy ?? "—"}</td>
-                <td><Pill v={o?.live ?? "-"} /></td>
-                <td className={o && o.oosPF >= 1.5 ? "pos" : ""}>{num(o?.oosPF, 2)}</td>
-                <td><Pill v={d?.live ?? "-"} /></td>
-                <td className={d && d.oosPF >= 1.5 ? "pos" : ""}>{num(d?.oosPF, 2)}</td>
-                <td>{pbOn ? <span className="muted" title="COT playback me nahi">—</span> : <CotBadge info={r.cot} />}</td>
-                <td className="muted" style={{ textAlign: "left" }}>{note}</td>
-                <td>{(optAct || divAct) && <button className="take-btn sm" onClick={() => onTake(optAct ? { symbol: r.symbol, opt: o } : { symbol: r.symbol, ...d })}>✋</button>}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div className="conv-summary">
+        {greens > 0
+          ? <>🟢 <b>{greens}</b> worth a look · 🟡 {yellows} watch · baaki skip. Upar wale zyada conviction wale hain.</>
+          : yellows > 0
+            ? <>🟢 Aaj koi strong (70+) setup nahi. 🟡 <b>{yellows}</b> borderline "watch" hain — neeche dekho, par soch-samajh ke.</>
+            : <>Aaj koi conviction-worthy setup nahi (sab low score). <b>Intezaar karna bhi ek trade hai.</b></>}
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Score</th><th>Asset</th>
+              <th>Opt OOS PF</th><th>Div OOS PF</th><th>Live</th><th>COT</th>
+              <th>Why</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {scored.map(({ r, s }, i) => {
+              if (r.error) return (
+                <tr key={i}><td>—</td><td className="sym">{NAME[r.symbol] || r.symbol}</td>
+                  <td colSpan={6} className="err" style={{ textAlign: "left" }}>{r.error}</td></tr>
+              );
+              const o = r.opt, d = r.div;
+              const optAct = actionable(o), divAct = actionable(d);
+              const why = s!.reasons.length ? s!.reasons.join(" · ") : "context only";
+              return (
+                <tr key={i} className={s!.bucket === "green" ? "hot" : ""}>
+                  <td><span className="conv-badge" style={BUCKET_STYLE[s!.bucket]}>{s!.score}</span></td>
+                  <td className="sym clickable" onClick={() => onChart(r.symbol)} title="Chart dekho">{NAME[r.symbol] || r.symbol}</td>
+                  <td className={o && o.oosPF >= 1.5 && o.oosPF < 50 ? "pos" : ""}>{o && o.oosPF >= 50 ? "fake" : num(o?.oosPF, 2)}</td>
+                  <td className={d && d.oosPF >= 1.5 && d.oosPF < 50 ? "pos" : ""}>{d && d.oosPF >= 50 ? "fake" : num(d?.oosPF, 2)}</td>
+                  <td><Pill v={s!.live ?? "-"} /></td>
+                  <td>{pbOn ? <span className="muted">—</span> : <CotBadge info={r.cot} />}</td>
+                  <td className="muted" style={{ textAlign: "left", fontSize: "11.5px" }}>
+                    {why}{s!.warn.length ? <span style={{ color: "#f2c14e" }}> · ⚠️ {s!.warn.join("; ")}</span> : null}
+                  </td>
+                  <td>{(optAct || divAct) && <button className="take-btn sm" onClick={() => onTake(optAct ? { symbol: r.symbol, opt: o } : { symbol: r.symbol, ...d })}>✋</button>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

@@ -70,6 +70,7 @@ const TABS = [
   { n: 1, key: "overview", label: "Overview" },
   { n: 2, key: "opt", label: "AI Strategy Optimizer" },
   { n: 3, key: "div", label: "Divergence Scanner" },
+  { n: 6, key: "fib", label: "📐 Fibonacci" },
   { n: 4, key: "cot", label: "COT Positioning" },
   { n: 5, key: "journal", label: "My Trades" },
 ] as const;
@@ -80,6 +81,7 @@ const DESC: Record<number, string> = {
   3: "RSI divergence (price LL + RSI HL / price HH + RSI LH) sirf 4h aur Daily timeframes par. Neeche historical backtest summary dikhata hai ki is universe pe divergence ne out-of-sample kitna success diya.",
   4: "CFTC COT weekly positioning (futures-mapped assets only). Index ≥80 = crowded long (contrarian short context), ≤20 = crowded short.",
   5: "Personal trade journal — setup pe '✋ Take this trade' dabao, agle bar ke open pe entry hoti hai aur real daily candles se SL/target auto-resolve hota hai. Playback mode me practice journal alag chalta hai.",
+  6: "📐 Fibonacci Retracement — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. 5 variants test hote hain, walk-forward 70/30 best chunta hai.",
 };
 
 const todayMinus = (days: number) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
@@ -276,7 +278,7 @@ export default function App() {
   }, [pbOn, pbDate, pbOpenCount]);
 
   // ==================== LIVE RUN ====================
-  const endpointFor = (t: number) => (t === 1 ? "overview" : t === 2 ? "optimize" : t === 3 ? "divergence" : "cot");
+  const endpointFor = (t: number) => (t === 1 ? "overview" : t === 2 ? "optimize" : t === 3 ? "divergence" : t === 6 ? "fibonacci" : "cot");
 
   async function run() {
     if (!selected.length || tab === 5 || pbOn) return;
@@ -342,7 +344,7 @@ export default function App() {
   }, [tab]);
 
   // ==================== DATA SOURCE (live res vs playback snapshot) ====================
-  const snapKey = tab === 1 ? "overview" : tab === 2 ? "optimize" : tab === 3 ? "divergence" : null;
+  const snapKey = tab === 1 ? "overview" : tab === 2 ? "optimize" : tab === 3 ? "divergence" : tab === 6 ? "fibonacci" : null;
   const sourceRows: any[] = pbOn
     ? (snapKey && pbSnap ? (pbSnap[snapKey] as any[]) ?? [] : [])
     : (ranTab === tab ? res : []);
@@ -647,7 +649,7 @@ export default function App() {
           <div className="toolbar">
             {!pbOn && (
               <button className="run-btn" disabled={busy} onClick={run}>
-                {busy ? "⏳ Running…" : tab === 1 ? "▶ Load overview" : tab === 2 ? "▶ Run optimizer" : tab === 3 ? "▶ Scan divergence" : "▶ Fetch COT"}
+                {busy ? "⏳ Running…" : tab === 1 ? "▶ Load overview" : tab === 2 ? "▶ Run optimizer" : tab === 3 ? "▶ Scan divergence" : tab === 6 ? "▶ Run Fibonacci" : "▶ Fetch COT"}
               </button>
             )}
             {tab !== 4 && (
@@ -736,6 +738,24 @@ export default function App() {
             )}
 
             {tab === 4 && <CotTable res={displayRows} />}
+
+            {tab === 6 && (
+              <>
+                <div className="conv-summary">
+                  📐 <b>Fibonacci Retracement</b> — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. 5 variants test hote hain, walk-forward 70/30 best chunta hai. <b>OOS PF aur win% dekho</b> — agar edge hai to Pass milega.
+                </div>
+                <ResultTable res={displayRows} cotMap={{}} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
+                  onTake={(r) => takeTrade(r, "fibonacci")} onChart={loadChart}
+                  cols={[
+                    ["strategy", "Fib Level", "text"], ["live", "Signal", "pill"],
+                    ["isWin", "IS Win%", "num"], ["isPF", "IS PF", "num"],
+                    ["oosWin", "OOS Win%", "num"], ["oosPF", "OOS PF", "num"],
+                    ["oosTrades", "OOS Trades", "int"],
+                    ["entry", "Entry", "price"], ["stop", "Stop", "price"], ["target", "Target", "price"],
+                    ["qualified", "Pass", "check"],
+                  ]} />
+              </>
+            )}
           </>
         )}
       </section>

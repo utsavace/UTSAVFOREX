@@ -183,4 +183,43 @@ export function divergence(c: Candle[], rsiP = 14, win = 2, R = 2, maxGap = 60) 
   return { bull, bear };
 }
 
+export function sFib(c: Candle[], level: number, lookback = 40): Sig {
+  const n = c.length;
+  const long = new Array(n).fill(false);
+  const short = new Array(n).fill(false);
+  
+  for (let i = lookback; i < n; i++) {
+    let hh = -Infinity, ll = Infinity;
+    let idxHH = -1, idxLL = -1;
+    for (let j = i - lookback; j < i; j++) {
+      if (c[j].high > hh) { hh = c[j].high; idxHH = j; }
+      if (c[j].low < ll) { ll = c[j].low; idxLL = j; }
+    }
+    const range = hh - ll;
+    if (range <= 0) continue;
+    
+    if (idxLL < idxHH) {
+      const lvlPrice = hh - level * range;
+      if (c[i - 1].close > lvlPrice && c[i].low <= lvlPrice) {
+        long[i] = true;
+      }
+    } else {
+      const lvlPrice = ll + level * range;
+      if (c[i - 1].close < lvlPrice && c[i].high >= lvlPrice) {
+        short[i] = true;
+      }
+    }
+  }
+  return { long, short };
+}
+
+export function fibonacciSignals(c: Candle[]): Strat[] {
+  const levels = [0.236, 0.382, 0.500, 0.618, 0.786];
+  const names = ["Fib 23.6%", "Fib 38.2%", "Fib 50.0%", "Fib 61.8%", "Fib 78.6%"];
+  return levels.map((lvl, idx) => {
+    const s = sFib(c, lvl, 50);
+    return { name: names[idx], long: s.long, short: s.short };
+  });
+}
+
 export { backtest, metrics };

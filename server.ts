@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
-import { walkForward, candidateSignals, divergence, type Gate } from "./server/strategies";
+import { walkForward, candidateSignals, divergence, fibonacciSignals, type Gate } from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
@@ -114,6 +114,13 @@ function computeDivRow(sym: string, c: Candle[], gate: Gate, rsiP: number, piv: 
   };
 }
 
+function computeFibRow(sym: string, c: Candle[], gate: Gate) {
+  if (c.length < 80) return { symbol: sym, error: "not enough data" };
+  const wf = walkForward(c, fibonacciSignals(c), HOLD, ALLOW_SHORT, gate);
+  if (!wf) return { symbol: sym, error: "not enough data for 70/30 split" };
+  return { symbol: sym, ...wf };
+}
+
 // ==================== LIVE API (same logic as before) ====================
 app.get("/api/history", async (req, res) => {
   try {
@@ -158,6 +165,21 @@ app.get("/api/divergence", async (req, res) => {
   res.json(out);
 });
 
+app.get("/api/fibonacci", async (req, res) => {
+  const { interval, start } = ctx(req);
+  const gate = gateOf(req);
+  const out: any[] = [];
+  for (const sym of symbols(req)) {
+    try {
+      const c = await getHistory(sym, start, interval);
+      out.push(computeFibRow(sym, c, gate));
+    } catch (e: any) {
+      out.push({ symbol: sym, error: e?.message || "fetch failed" });
+    }
+  }
+  res.json(out);
+});
+
 app.get("/api/overview", async (req, res) => {
   const { interval, start } = ctx(req);
   const gate = gateOf(req);
@@ -170,8 +192,10 @@ app.get("/api/overview", async (req, res) => {
       const opt = walkForward(c, candidateSignals(c), HOLD, ALLOW_SHORT, gate);
       const { bull, bear } = divergence(c, 14, 2, 2);
       const div = walkForward(c, [{ name: "RSI Divergence", long: bull, short: bear }], HOLD, ALLOW_SHORT, gate);
+      const fib = walkForward(c, fibonacciSignals(c), HOLD, ALLOW_SHORT, gate);
       row.opt = opt && { strategy: opt.strategy, live: opt.live, isPF: opt.isPF, oosPF: opt.oosPF, oosTrades: opt.oosTrades, qualified: opt.qualified, entry: opt.entry, stop: opt.stop, target: opt.target };
       row.div = div && { live: div.live, oosPF: div.oosPF, oosTrades: div.oosTrades, qualified: div.qualified, entry: div.entry, stop: div.stop, target: div.target };
+      row.fib = fib && { strategy: fib.strategy, live: fib.live, isPF: fib.isPF, oosPF: fib.oosPF, oosTrades: fib.oosTrades, qualified: fib.qualified, entry: fib.entry, stop: fib.stop, target: fib.target };
     } catch (e: any) { out.push({ symbol: sym, error: e?.message || "fetch failed" }); continue; }
     if (cotSupported(sym)) {
       try { row.cot = (await fetchCot(sym, 52)) || null; } catch { row.cot = null; }
@@ -231,6 +255,7 @@ app.get("/api/playback/snapshot", async (req, res) => {
   const optimize: any[] = [];
   const diverg: any[] = [];
   const overview: any[] = [];
+  const fibonacci: any[] = [];
 
   for (const sym of syms) {
     try {
@@ -238,19 +263,22 @@ app.get("/api/playback/snapshot", async (req, res) => {
       const c = upTo(full, date);
       const o = computeOptRow(sym, c, gate);
       const d = computeDivRow(sym, c, gate, rsiP, piv);
+      const f = computeFibRow(sym, c, gate);
       optimize.push(o);
       diverg.push(d);
-      const oAny: any = o, dAny: any = d;
+      fibonacci.push(f);
+      const oAny: any = o, dAny: any = d, fAny: any = f;
       overview.push({
         symbol: sym,
         opt: oAny.error ? null : { strategy: oAny.strategy, live: oAny.live, isPF: oAny.isPF, oosPF: oAny.oosPF, qualified: oAny.qualified, entry: oAny.entry, stop: oAny.stop, target: oAny.target },
         div: dAny.error ? null : { live: dAny.live, oosPF: dAny.oosPF, qualified: dAny.qualified, entry: dAny.entry, stop: dAny.stop, target: dAny.target },
+        fib: fAny.error ? null : { strategy: fAny.strategy, live: fAny.live, isPF: fAny.isPF, oosPF: fAny.oosPF, qualified: fAny.qualified, entry: fAny.entry, stop: fAny.stop, target: fAny.target },
         cot: null, // historical COT reconstruction not supported — context only in live mode
-        error: oAny.error && dAny.error ? oAny.error : undefined,
+        error: oAny.error && dAny.error && fAny.error ? oAny.error : undefined,
       });
     } catch (e: any) {
       const err = { symbol: sym, error: e?.message || "fetch failed" };
-      optimize.push(err); diverg.push(err); overview.push(err);
+      optimize.push(err); diverg.push(err); overview.push(err); fibonacci.push(err);
     }
   }
 
@@ -260,8 +288,9 @@ app.get("/api/playback/snapshot", async (req, res) => {
     date,
     optimize,
     divergence: diverg,
+    fibonacci,
     overview,
-    counts: { optimize: q(optimize), divergence: q(diverg) },
+    counts: { optimize: q(optimize), divergence: q(diverg), fibonacci: q(fibonacci) },
   });
 });
 

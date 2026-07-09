@@ -67,21 +67,17 @@ const ASSETS: Asset[] = [
 const NAME: Record<string, string> = Object.fromEntries(ASSETS.map((a) => [a.sym, a.name]));
 
 const TABS = [
-  { n: 1, key: "overview", label: "Overview" },
-  { n: 2, key: "opt", label: "AI Strategy Optimizer" },
-  { n: 3, key: "div", label: "Divergence Scanner" },
+  { n: 7, key: "intersection", label: "🎯 Intersection" },
   { n: 6, key: "fib", label: "📐 Fibonacci" },
-  { n: 4, key: "cot", label: "COT Positioning" },
+  { n: 4, key: "cot", label: "COT" },
   { n: 5, key: "journal", label: "My Trades" },
 ] as const;
 
 const DESC: Record<number, string> = {
-  1: "Watchlist: har asset par Optimizer best + Divergence + COT ek saath. Decision-support hai — koi auto-signal nahi.",
-  2: "Har asset pe RSI / MACD / EMA / Bollinger combinations tune hote hain walk-forward 70/30 se: pehle 70% (in-sample) par entry×SL×TP optimize, phir last 30% (out-of-sample) par validate — overfitting se bachne ke liye Pass tabhi jab DONO clear karein.",
-  3: "RSI divergence (price LL + RSI HL / price HH + RSI LH) sirf 4h aur Daily timeframes par. Neeche historical backtest summary dikhata hai ki is universe pe divergence ne out-of-sample kitna success diya.",
   4: "CFTC COT weekly positioning (futures-mapped assets only). Index ≥80 = crowded long (contrarian short context), ≤20 = crowded short.",
   5: "Personal trade journal — setup pe '✋ Take this trade' dabao, agle bar ke open pe entry hoti hai aur real daily candles se SL/target auto-resolve hota hai. Playback mode me practice journal alag chalta hai.",
   6: "📐 Fibonacci Retracement — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. 5 variants test hote hain, walk-forward 70/30 best chunta hai.",
+  7: "🎯 Fibonacci + Divergence + COT Confluence module to find high-probability setups with a 0-5 setup score.",
 };
 
 const todayMinus = (days: number) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
@@ -107,7 +103,7 @@ function Pill({ v }: { v: string }) {
 const actionable = (r: any) => r && !r.error && r.qualified && (r.live === "LONG" || r.live === "SHORT");
 
 export default function App() {
-  const [tab, setTab] = useState(1);
+  const [tab, setTab] = useState(7);
   const [selected, setSelected] = useState<string[]>([
     "EURUSD=X", "GBPUSD=X", "GC=F", "CL=F", "BTC-USD", "ETH-USD", "AAPL", "NVDA", "^GSPC",
   ]);
@@ -278,13 +274,13 @@ export default function App() {
   }, [pbOn, pbDate, pbOpenCount]);
 
   // ==================== LIVE RUN ====================
-  const endpointFor = (t: number) => (t === 1 ? "overview" : t === 2 ? "optimize" : t === 3 ? "divergence" : t === 6 ? "fibonacci" : "cot");
+  const endpointFor = (t: number) => (t === 7 ? "intersection" : t === 6 ? "fibonacci" : t === 4 ? "cot" : "intersection");
 
   async function run() {
     if (!selected.length || tab === 5 || pbOn) return;
     setBusy(true); setRes([]); setRanTab(tab);
     try {
-      const ep = endpointFor(tab);
+      const ep = endpointFor(tab) as string;
       const extra = tab === 3 ? { piv, rsiP } : {};
       const r = await fetch(`/api/${ep}?${qs(extra)}`);
       const data = await r.json();
@@ -344,10 +340,21 @@ export default function App() {
   }, [tab]);
 
   // ==================== DATA SOURCE (live res vs playback snapshot) ====================
-  const snapKey = tab === 1 ? "overview" : tab === 2 ? "optimize" : tab === 3 ? "divergence" : tab === 6 ? "fibonacci" : null;
-  const sourceRows: any[] = pbOn
+  const snapKey = tab === 7 ? "overview" : tab === 6 ? "fibonacci" : null;
+  const rawRows: any[] = pbOn
     ? (snapKey && pbSnap ? (pbSnap[snapKey] as any[]) ?? [] : [])
     : (ranTab === tab ? res : []);
+  const sourceRows: any[] = useMemo(() => {
+    if (pbOn && tab === 7) {
+      return rawRows.map(r => ({
+        ...r,
+        fib: r.opt,
+        score: (r.opt && r.opt.oosPF >= 1.5 ? 2 : (r.opt && r.opt.oosPF >= 1.0 ? 1 : 0)) +
+               (r.opt && r.div && r.opt.live !== "-" && r.div.live === r.opt.live ? 2 : (r.div && r.div.live !== "-" ? 1 : 0))
+      }));
+    }
+    return rawRows;
+  }, [pbOn, tab, rawRows]);
 
   const displayRows = useMemo(() => {
     let out = [...sourceRows];
@@ -649,7 +656,7 @@ export default function App() {
           <div className="toolbar">
             {!pbOn && (
               <button className="run-btn" disabled={busy} onClick={run}>
-                {busy ? "⏳ Running…" : tab === 1 ? "▶ Load overview" : tab === 2 ? "▶ Run optimizer" : tab === 3 ? "▶ Scan divergence" : tab === 6 ? "▶ Run Fibonacci" : "▶ Fetch COT"}
+                {busy ? "⏳ Running…" : tab === 7 ? "▶ Run Intersection" : tab === 6 ? "▶ Run Fibonacci" : "▶ Fetch COT"}
               </button>
             )}
             {tab !== 4 && (
@@ -700,49 +707,12 @@ export default function App() {
           </div>
         ) : (
           <>
-            {(tab === 2 || tab === 3) && <LiveSetups res={displayRows} onTake={(r) => takeTrade(r, tab === 2 ? "optimizer" : "divergence")} />}
-
-            {tab === 1 && <OverviewTable res={displayRows} onTake={(r) => takeTrade(r, "overview")} onChart={loadChart} pbOn={pbOn} />}
-
-            {tab === 1 && !pbOn && <ScoreBacktest qs={qs} />}
-
-            {tab === 2 && (
-              <ResultTable res={displayRows} cotMap={pbOn ? {} : cotMap} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
-                onTake={(r) => takeTrade(r, "optimizer")} onChart={loadChart}
-                cols={[
-                  ["strategy", "Strategy", "text"], ["live", "Signal", "pill"],
-                  ["isWin", "IS Win%", "num"], ["isPF", "IS PF", "num"],
-                  ["oosWin", "OOS Win%", "num"], ["oosPF", "OOS PF", "num"],
-                  ["oosTrades", "OOS Trades", "int"],
-                  ["entry", "Entry", "price"], ["stop", "Stop", "price"], ["target", "Target", "price"],
-                  ["cot", "COT", "cotbadge"],
-                  ["qualified", "Pass", "check"],
-                ]} />
-            )}
-
-            {tab === 3 && (
-              <>
-                <DivSummary res={displayRows} interval={pbOn ? "1d" : interval} />
-                <ResultTable res={displayRows} cotMap={pbOn ? {} : cotMap} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
-                  onTake={(r) => takeTrade(r, "divergence")} onChart={loadChart}
-                  cols={[
-                    ["live", "Signal", "pill"], ["signals", "Signals", "int"],
-                    ["isWin", "IS Win%", "num"], ["isPF", "IS PF", "num"],
-                    ["oosWin", "OOS Win%", "num"], ["oosPF", "OOS PF", "num"],
-                    ["oosTrades", "OOS Trades", "int"],
-                    ["entry", "Entry", "price"], ["stop", "Stop", "price"], ["target", "Target", "price"],
-                    ["cot", "COT", "cotbadge"],
-                    ["qualified", "Pass", "check"],
-                  ]} />
-              </>
-            )}
-
-            {tab === 4 && <CotTable res={displayRows} />}
+            {tab === 7 && <IntersectionTable res={displayRows} onTake={takeTrade} onChart={loadChart} />}
 
             {tab === 6 && (
               <>
                 <div className="conv-summary">
-                  📐 <b>Fibonacci Retracement</b> — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. Walk-forward 70/30 best variant chunta hai. OOS PF aur win% = asli 1-saal ka result.
+                  📐 <b>Fibonacci Retracement</b> — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. Walk-forward 70/30 best variant chunta hai. OOS PF ≥ 1.5 wale dhyaan dene layak hain.
                 </div>
                 <ResultTable res={displayRows} cotMap={{}} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
                   onTake={(r) => takeTrade(r, "fibonacci")} onChart={loadChart}
@@ -756,6 +726,8 @@ export default function App() {
                   ]} />
               </>
             )}
+
+            {tab === 4 && <CotTable res={displayRows} />}
           </>
         )}
       </section>
@@ -1119,6 +1091,87 @@ function ResultTable({ res, cols, cotMap, onSort, sortKey, sortAsc, onTake, onCh
                 )}
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function IntersectionTable({ res, onTake, onChart }: { res: any[]; onTake: (r: any, mod: string) => void; onChart: (s: string) => void }) {
+  if (!res.length) return <div className="empty">Run intersection to see Confluence score of assets.</div>;
+
+  const data = res.filter((r) => !r.error);
+  const errs = res.filter((r) => r.error);
+  const sorted = [...data].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const finalRows = [...sorted, ...errs];
+
+  return (
+    <>
+      <div className="conv-summary">
+        🎯 <b>Intersection Confluence Desk</b> — scores assets 0 to 5.
+        {" "}Points criteria: Fib OOS PF ≥ 1.5 (+2), Divergence agreement (+2), COT positioning agreement (+1).
+        {" "}Score ≥3 are highlighted.
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Score</th>
+              <th>Asset</th>
+              <th>Fib OOS PF</th>
+              <th>Fib Signal</th>
+              <th>Div Signal</th>
+              <th>COT</th>
+              <th>Confluence Why</th>
+              <th>Setup Levels</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {finalRows.map((r, i) => {
+              if (r.error) {
+                return (
+                  <tr key={i}>
+                    <td>—</td>
+                    <td className="sym">{NAME[r.symbol] || r.symbol}</td>
+                    <td colSpan={7} className="err" style={{ textAlign: "left" }}>{r.error}</td>
+                  </tr>
+                );
+              }
+              const f = r.fib, d = r.div, c = r.cot;
+              const isActionable = f && f.live !== "none" && f.live !== "-";
+              const scoreColor = r.score >= 4 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : r.score >= 3 ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-slate-800 text-slate-400 border border-slate-700";
+              return (
+                <tr key={i} className={r.score >= 3 ? "hot" : ""}>
+                  <td>
+                    <span className={`inline-flex items-center justify-center font-bold px-2.5 py-1 rounded-md text-xs ${scoreColor}`}>
+                      {r.score}/5
+                    </span>
+                  </td>
+                  <td className="sym clickable" onClick={() => onChart(r.symbol)} title="Chart dekho">
+                    {NAME[r.symbol] || r.symbol}
+                  </td>
+                  <td className={f && f.oosPF >= 1.5 ? "pos" : ""}>{f ? num(f.oosPF, 2) : "—"}</td>
+                  <td>{f ? <Pill v={f.live} /> : "—"}</td>
+                  <td>{d ? <Pill v={d.live} /> : "—"}</td>
+                  <td><CotBadge info={c} /></td>
+                  <td className="muted" style={{ textAlign: "left", fontSize: "11.5px" }}>{r.reasons || "No confluence features"}</td>
+                  <td>
+                    {f && f.entry != null ? (
+                      <div className="font-mono text-[10.5px] text-slate-400 flex items-center justify-center gap-1">
+                        <span>E: {price(f.entry)}</span> | <span className="neg">S: {price(f.stop)}</span> | <span className="pos">T: {price(f.target)}</span>
+                      </div>
+                    ) : "—"}
+                  </td>
+                  <td>
+                    {isActionable && (
+                      <button className="take-btn sm" onClick={() => onTake({ symbol: r.symbol, ...f }, "intersection")}>✋</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

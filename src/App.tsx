@@ -361,7 +361,7 @@ export default function App() {
     }
     if (liveOnly) {
       out = out.filter((r: any) => {
-        const l = r.live || r.opt?.live || r.div?.live;
+        const l = r.live || r.opt?.live || r.div?.live || r.fib?.live;
         return l === "LONG" || l === "SHORT";
       });
     }
@@ -742,7 +742,7 @@ export default function App() {
             {tab === 6 && (
               <>
                 <div className="conv-summary">
-                  📐 <b>Fibonacci Retracement</b> — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. 5 variants test hote hain, walk-forward 70/30 best chunta hai. <b>OOS PF aur win% dekho</b> — agar edge hai to Pass milega.
+                  📐 <b>Fibonacci Retracement</b> — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. Walk-forward 70/30 best variant chunta hai. OOS PF aur win% = asli 1-saal ka result.
                 </div>
                 <ResultTable res={displayRows} cotMap={{}} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
                   onTake={(r) => takeTrade(r, "fibonacci")} onChart={loadChart}

@@ -61,7 +61,6 @@ const CANDIDATES: { name: string; fn: (c: Candle[]) => Sig }[] = [
 ];
 
 export interface Gate { minWin: number; minPF: number; minTrades: number; }
-
 export interface Strat { name: string; long: boolean[]; short: boolean[]; }
 
 export function candidateSignals(c: Candle[]): Strat[] {
@@ -183,43 +182,78 @@ export function divergence(c: Candle[], rsiP = 14, win = 2, R = 2, maxGap = 60) 
   return { bull, bear };
 }
 
-export function sFib(c: Candle[], level: number, lookback = 40): Sig {
+export { backtest, metrics };
+
+// ──────────────── Fibonacci Retracement Strategies ────────────────
+function swingPoints(c: Candle[], wing: number) {
+  const n = c.length;
+  const peaks: number[] = [], troughs: number[] = [];
+  for (let i = wing; i < n - wing; i++) {
+    let isP = true, isT = true;
+    for (let k = 1; k <= wing; k++) {
+      if (c[i].high <= c[i - k].high || c[i].high <= c[i + k].high) isP = false;
+      if (c[i].low >= c[i - k].low || c[i].low >= c[i + k].low) isT = false;
+    }
+    if (isP) peaks.push(i);
+    if (isT) troughs.push(i);
+  }
+  return { peaks, troughs };
+}
+
+function fibSignals(c: Candle[], wing: number, fibLevel: number): Sig {
   const n = c.length;
   const long = new Array(n).fill(false);
   const short = new Array(n).fill(false);
-  
-  for (let i = lookback; i < n; i++) {
-    let hh = -Infinity, ll = Infinity;
-    let idxHH = -1, idxLL = -1;
-    for (let j = i - lookback; j < i; j++) {
-      if (c[j].high > hh) { hh = c[j].high; idxHH = j; }
-      if (c[j].low < ll) { ll = c[j].low; idxLL = j; }
+  const { peaks, troughs } = swingPoints(c, wing);
+
+  for (let pi = 0; pi < peaks.length; pi++) {
+    const pH = peaks[pi];
+    let tL = -1;
+    for (let ti = troughs.length - 1; ti >= 0; ti--) {
+      if (troughs[ti] < pH) { tL = troughs[ti]; break; }
     }
-    const range = hh - ll;
+    if (tL === -1) continue;
+    const swingLow = c[tL].low, swingHigh = c[pH].high;
+    const range = swingHigh - swingLow;
     if (range <= 0) continue;
-    
-    if (idxLL < idxHH) {
-      const lvlPrice = hh - level * range;
-      if (c[i - 1].close > lvlPrice && c[i].low <= lvlPrice) {
-        long[i] = true;
-      }
-    } else {
-      const lvlPrice = ll + level * range;
-      if (c[i - 1].close < lvlPrice && c[i].high >= lvlPrice) {
-        short[i] = true;
-      }
+    const fibPrice = swingHigh - fibLevel * range;
+    const tol = range * 0.005;
+    for (let j = pH + 1; j < Math.min(n - 1, pH + 40); j++) {
+      if (c[j].low < swingLow) break;
+      if (c[j].low <= fibPrice + tol && c[j].close > fibPrice) { long[j] = true; break; }
     }
   }
+
+  for (let ti = 0; ti < troughs.length; ti++) {
+    const tL = troughs[ti];
+    let pH = -1;
+    for (let pi = peaks.length - 1; pi >= 0; pi--) {
+      if (peaks[pi] < tL) { pH = peaks[pi]; break; }
+    }
+    if (pH === -1) continue;
+    const swingHigh = c[pH].high, swingLow = c[tL].low;
+    const range = swingHigh - swingLow;
+    if (range <= 0) continue;
+    const fibPrice = swingLow + fibLevel * range;
+    const tol = range * 0.005;
+    for (let j = tL + 1; j < Math.min(n - 1, tL + 40); j++) {
+      if (c[j].high > swingHigh) break;
+      if (c[j].high >= fibPrice - tol && c[j].close < fibPrice) { short[j] = true; break; }
+    }
+  }
+
   return { long, short };
 }
 
-export function fibonacciSignals(c: Candle[]): Strat[] {
-  const levels = [0.236, 0.382, 0.500, 0.618, 0.786];
-  const names = ["Fib 23.6%", "Fib 38.2%", "Fib 50.0%", "Fib 61.8%", "Fib 78.6%"];
-  return levels.map((lvl, idx) => {
-    const s = sFib(c, lvl, 50);
-    return { name: names[idx], long: s.long, short: s.short };
+export function fibCandidates(c: Candle[]): Strat[] {
+  return [
+    { name: "Fib 38.2% (wing5)", level: 0.382, wing: 5 },
+    { name: "Fib 50.0% (wing5)", level: 0.500, wing: 5 },
+    { name: "Fib 61.8% (wing5)", level: 0.618, wing: 5 },
+    { name: "Fib 38.2% (wing8)", level: 0.382, wing: 8 },
+    { name: "Fib 61.8% (wing8)", level: 0.618, wing: 8 },
+  ].map(({ name, level, wing }) => {
+    const { long, short } = fibSignals(c, wing, level);
+    return { name, long, short };
   });
 }
-
-export { backtest, metrics };

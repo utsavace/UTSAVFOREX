@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
-import { walkForward, candidateSignals, divergence, fibonacciSignals, type Gate } from "./server/strategies";
+import { walkForward, candidateSignals, divergence, fibCandidates, type Gate } from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
@@ -116,7 +116,7 @@ function computeDivRow(sym: string, c: Candle[], gate: Gate, rsiP: number, piv: 
 
 function computeFibRow(sym: string, c: Candle[], gate: Gate) {
   if (c.length < 80) return { symbol: sym, error: "not enough data" };
-  const wf = walkForward(c, fibonacciSignals(c), HOLD, ALLOW_SHORT, gate);
+  const wf = walkForward(c, fibCandidates(c), HOLD, ALLOW_SHORT, gate);
   if (!wf) return { symbol: sym, error: "not enough data for 70/30 split" };
   return { symbol: sym, ...wf };
 }
@@ -192,7 +192,7 @@ app.get("/api/overview", async (req, res) => {
       const opt = walkForward(c, candidateSignals(c), HOLD, ALLOW_SHORT, gate);
       const { bull, bear } = divergence(c, 14, 2, 2);
       const div = walkForward(c, [{ name: "RSI Divergence", long: bull, short: bear }], HOLD, ALLOW_SHORT, gate);
-      const fib = walkForward(c, fibonacciSignals(c), HOLD, ALLOW_SHORT, gate);
+      const fib = walkForward(c, fibCandidates(c), HOLD, ALLOW_SHORT, gate);
       row.opt = opt && { strategy: opt.strategy, live: opt.live, isPF: opt.isPF, oosPF: opt.oosPF, oosTrades: opt.oosTrades, qualified: opt.qualified, entry: opt.entry, stop: opt.stop, target: opt.target };
       row.div = div && { live: div.live, oosPF: div.oosPF, oosTrades: div.oosTrades, qualified: div.qualified, entry: div.entry, stop: div.stop, target: div.target };
       row.fib = fib && { strategy: fib.strategy, live: fib.live, isPF: fib.isPF, oosPF: fib.oosPF, oosTrades: fib.oosTrades, qualified: fib.qualified, entry: fib.entry, stop: fib.stop, target: fib.target };

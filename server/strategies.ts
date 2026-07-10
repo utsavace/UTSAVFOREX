@@ -184,7 +184,7 @@ export function divergence(c: Candle[], rsiP = 14, win = 2, R = 2, maxGap = 60) 
 
 export { backtest, metrics };
 
-// ──────────────── Fibonacci Retracement Strategies ────────────────
+// ──────────────── Fibonacci Retracement ────────────────
 function swingPoints(c: Candle[], wing: number) {
   const n = c.length;
   const peaks: number[] = [], troughs: number[] = [];
@@ -256,4 +256,43 @@ export function fibCandidates(c: Candle[]): Strat[] {
     const { long, short } = fibSignals(c, wing, level);
     return { name, long, short };
   });
+}
+
+// ──────────────── London Breakout ────────────────
+function hourUTC(dateStr: string): number {
+  const parts = String(dateStr).split(" ");
+  if (parts.length < 2) return 0;
+  return Number(parts[1].split(":")[0]);
+}
+
+export function londonBreakout(c: Candle[]): Sig {
+  const n = c.length;
+  const long = new Array(n).fill(false);
+  const short = new Array(n).fill(false);
+
+  const byDate = new Map<string, number[]>();
+  for (let i = 0; i < n; i++) {
+    const d = String(c[i].date).slice(0, 10);
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d)!.push(i);
+  }
+
+  for (const [, idxs] of byDate) {
+    const asian = idxs.filter((i) => hourUTC(c[i].date) >= 0 && hourUTC(c[i].date) <= 6);
+    const london = idxs.filter((i) => hourUTC(c[i].date) >= 7 && hourUTC(c[i].date) <= 9);
+    if (asian.length < 3 || london.length < 1) continue;
+
+    const asianHigh = Math.max(...asian.map((i) => c[i].high));
+    const asianLow = Math.min(...asian.map((i) => c[i].low));
+    const range = asianHigh - asianLow;
+    if (range <= 0) continue;
+
+    let fired = false;
+    for (const li of london) {
+      if (fired) break;
+      if (c[li].close > asianHigh) { long[li] = true; fired = true; }
+      else if (c[li].close < asianLow) { short[li] = true; fired = true; }
+    }
+  }
+  return { long, short };
 }

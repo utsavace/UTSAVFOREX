@@ -69,6 +69,8 @@ const NAME: Record<string, string> = Object.fromEntries(ASSETS.map((a) => [a.sym
 const TABS = [
   { n: 7, key: "intersection", label: "🎯 Intersection" },
   { n: 6, key: "fib", label: "📐 Fibonacci" },
+  { n: 8, key: "carry", label: "💰 Carry Trade" },
+  { n: 9, key: "london", label: "🌆 London Breakout" },
   { n: 4, key: "cot", label: "COT" },
   { n: 5, key: "journal", label: "My Trades" },
 ] as const;
@@ -78,6 +80,8 @@ const DESC: Record<number, string> = {
   5: "Personal trade journal — setup pe '✋ Take this trade' dabao, agle bar ke open pe entry hoti hai aur real daily candles se SL/target auto-resolve hota hai. Playback mode me practice journal alag chalta hai.",
   6: "📐 Fibonacci Retracement — swing high/low detect karke 38.2% / 50% / 61.8% retracement pe bounce signal. 5 variants test hote hain, walk-forward 70/30 best chunta hai.",
   7: "🎯 Fibonacci + Divergence + COT Confluence module to find high-probability setups with a 0-5 setup score.",
+  8: "💰 Carry Trade — Low-rate currency borrow karke high-rate me hold = daily swap income. Score 0–5.",
+  9: "🌆 London Breakout — Asian session (00:00–07:00 UTC) range breakout at London open. 1h timeframe.",
 };
 
 const todayMinus = (days: number) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
@@ -274,7 +278,7 @@ export default function App() {
   }, [pbOn, pbDate, pbOpenCount]);
 
   // ==================== LIVE RUN ====================
-  const endpointFor = (t: number) => (t === 7 ? "intersection" : t === 6 ? "fibonacci" : t === 4 ? "cot" : "intersection");
+  const endpointFor = (t: number) => (t === 7 ? "intersection" : t === 6 ? "fibonacci" : t === 8 ? "carry" : t === 9 ? "london-breakout" : t === 4 ? "cot" : "intersection");
 
   async function run() {
     if (!selected.length || tab === 5 || pbOn) return;
@@ -284,7 +288,7 @@ export default function App() {
       const extra = tab === 3 ? { piv, rsiP } : {};
       const r = await fetch(`/api/${ep}?${qs(extra)}`);
       const data = await r.json();
-      const rows = Array.isArray(data) ? data : [];
+      const rows = Array.isArray(data) ? data : (data.results || []);
       setRes(rows);
       if (ep === "divergence") {
         const dp: Record<string, any[]> = {};
@@ -656,7 +660,7 @@ export default function App() {
           <div className="toolbar">
             {!pbOn && (
               <button className="run-btn" disabled={busy} onClick={run}>
-                {busy ? "⏳ Running…" : tab === 7 ? "▶ Run Intersection" : tab === 6 ? "▶ Run Fibonacci" : "▶ Fetch COT"}
+                {busy ? "⏳ Running…" : tab === 7 ? "▶ Run Intersection" : tab === 6 ? "▶ Run Fibonacci" : tab === 8 ? "▶ Fetch Carry Data" : tab === 9 ? "▶ Run London Breakout" : "▶ Fetch COT"}
               </button>
             )}
             {tab !== 4 && (
@@ -728,6 +732,26 @@ export default function App() {
             )}
 
             {tab === 4 && <CotTable res={displayRows} />}
+
+            {tab === 8 && <CarryTable res={res} />}
+
+            {tab === 9 && (
+              <>
+                <div className="conv-summary">
+                  🌆 <b>London Breakout</b> — Asian session (00:00–07:00 UTC) ka range pakad ke London open (07:00–10:00) pe breakout trade. Timeframe automatically 1h. Walk-forward 70/30 honest OOS test.
+                </div>
+                <ResultTable res={displayRows} cotMap={{}} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
+                  onTake={(r) => takeTrade(r, "london")} onChart={loadChart}
+                  cols={[
+                    ["signals", "Daily Signals", "int"], ["live", "Signal", "pill"],
+                    ["isWin", "IS Win%", "num"], ["isPF", "IS PF", "num"],
+                    ["oosWin", "OOS Win%", "num"], ["oosPF", "OOS PF", "num"],
+                    ["oosTrades", "OOS Trades", "int"],
+                    ["entry", "Entry", "price"], ["stop", "Stop", "price"], ["target", "Target", "price"],
+                    ["qualified", "Pass", "check"],
+                  ]} />
+              </>
+            )}
           </>
         )}
       </section>
@@ -1091,6 +1115,55 @@ function ResultTable({ res, cols, cotMap, onSort, sortKey, sortAsc, onTake, onCh
                 )}
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function CarryTable({ res }: { res: any[] }) {
+  if (!res.length) return <div className="empty">FX assets select karke "Fetch Carry Data" dabao.</div>;
+  const SCORE_COLOR = (s: number) => s >= 4 ? "#2dd4a7" : s >= 2 ? "#f2c14e" : "#5f6b85";
+  const DIR_CLASS = (d: string) => d === "LONG" ? "pos" : d === "SHORT" ? "neg" : "muted";
+  return (
+    <>
+      <div className="conv-summary">
+        <b>💰 Carry Trade</b> — Low-rate currency borrow karke high-rate me hold = daily swap income. Score 0–5: differential size (0–3 pts) + price trend aligned (+2 pts).<br />
+        <b>🟢 4–5</b> = strong carry + trend · <b>🟡 2–3</b> = carry present · <b>⚫ 0–1</b> = avoid.<br />
+        ⚠️ <b>Risk:</b> Risk-off event me pairs crash fast. Stop-loss zaroori. Daily swap slow hai, loss sudden — "swap cover kar lega" mat sochna kabhi.
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Score</th><th>Pair</th>
+              <th>Base rate</th><th>Quote rate</th><th>Differential</th><th>Daily swap</th>
+              <th>Carry dir</th><th>Trend align</th><th>Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            {res.map((r, i) => {
+              if (r.error) return (
+                <tr key={i} style={{ opacity: 0.4 }}>
+                  <td>—</td><td className="sym">{NAME[r.symbol] || r.symbol}</td>
+                  <td colSpan={7} className="err">{r.error}</td>
+                </tr>
+              );
+              return (
+                <tr key={i} style={{ opacity: r.carryScore < 2 ? 0.45 : 1 }}>
+                  <td><span style={{ fontWeight: 700, color: SCORE_COLOR(r.carryScore), fontFamily: "var(--mono)", fontSize: 13 }}>{r.carryScore}/5</span></td>
+                  <td className="sym">{NAME[r.symbol] || r.symbol}</td>
+                  <td>{r.baseCcy} <b>{r.baseRate}%</b></td>
+                  <td>{r.quoteCcy} <b>{r.quoteRate}%</b></td>
+                  <td className={Math.abs(r.differential) >= 2 ? "pos" : ""}><b>{r.differential > 0 ? "+" : ""}{r.differential}%</b></td>
+                  <td className="muted">{r.dailySwap > 0 ? "+" : ""}{r.dailySwap}% /day</td>
+                  <td><span className={DIR_CLASS(r.carryDirection)}>{r.carryDirection}</span></td>
+                  <td>{r.trendAlign ? <span className="pos">✅ Yes</span> : <span className="neg">❌ No</span>}</td>
+                  <td className="muted" style={{ fontSize: 11, textAlign: "left" }}>{r.note}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -71,6 +71,8 @@ const TABS = [
   { n: 6, key: "fib", label: "📐 Fibonacci" },
   { n: 8, key: "carry", label: "💰 Carry Trade" },
   { n: 9, key: "london", label: "🌆 London Breakout" },
+  { n: 10, key: "orb", label: "🚀 ORB" },
+  { n: 11, key: "pullback", label: "🎯 Pullback" },
   { n: 4, key: "cot", label: "COT" },
   { n: 5, key: "journal", label: "My Trades" },
 ] as const;
@@ -278,7 +280,7 @@ export default function App() {
   }, [pbOn, pbDate, pbOpenCount]);
 
   // ==================== LIVE RUN ====================
-  const endpointFor = (t: number) => (t === 7 ? "intersection" : t === 6 ? "fibonacci" : t === 8 ? "carry" : t === 9 ? "london-breakout" : t === 4 ? "cot" : "intersection");
+  const endpointFor = (t: number) => (t === 7 ? "intersection" : t === 6 ? "fibonacci" : t === 8 ? "carry" : t === 9 ? "london-breakout" : t === 10 ? "orb" : t === 11 ? "pullback" : t === 4 ? "cot" : "intersection");
 
   async function run() {
     if (!selected.length || tab === 5 || pbOn) return;
@@ -660,7 +662,7 @@ export default function App() {
           <div className="toolbar">
             {!pbOn && (
               <button className="run-btn" disabled={busy} onClick={run}>
-                {busy ? "⏳ Running…" : tab === 7 ? "▶ Run Intersection" : tab === 6 ? "▶ Run Fibonacci" : tab === 8 ? "▶ Fetch Carry Data" : tab === 9 ? "▶ Run London Breakout" : "▶ Fetch COT"}
+                {busy ? "⏳ Running…" : tab === 7 ? "▶ Run Intersection" : tab === 6 ? "▶ Run Fibonacci" : tab === 8 ? "▶ Fetch Carry Data" : tab === 9 ? "▶ Run London Breakout" : tab === 10 ? "▶ Run ORB" : tab === 11 ? "▶ Run Pullback" : "▶ Fetch COT"}
               </button>
             )}
             {tab !== 4 && (
@@ -744,6 +746,42 @@ export default function App() {
                   onTake={(r) => takeTrade(r, "london")} onChart={loadChart}
                   cols={[
                     ["signals", "Daily Signals", "int"], ["live", "Signal", "pill"],
+                    ["isWin", "IS Win%", "num"], ["isPF", "IS PF", "num"],
+                    ["oosWin", "OOS Win%", "num"], ["oosPF", "OOS PF", "num"],
+                    ["oosTrades", "OOS Trades", "int"],
+                    ["entry", "Entry", "price"], ["stop", "Stop", "price"], ["target", "Target", "price"],
+                    ["qualified", "Pass", "check"],
+                  ]} />
+              </>
+            )}
+
+            {tab === 10 && (
+              <>
+                <div className="conv-summary">
+                  🚀 <b>Opening Range Breakout (ORB)</b> — London open (07:00 UTC) ka pehla 1h candle = range. Agle 4 ghante me range ke bahar close → breakout entry. Stop range ke opposite side (risk built-in). Walk-forward 70/30 honest test. OOS PF ≥ 1.5 = real edge.
+                </div>
+                <ResultTable res={displayRows} cotMap={{}} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
+                  onTake={(r) => takeTrade(r, "orb")} onChart={loadChart}
+                  cols={[
+                    ["signals", "Signals", "int"], ["live", "Signal", "pill"],
+                    ["isWin", "IS Win%", "num"], ["isPF", "IS PF", "num"],
+                    ["oosWin", "OOS Win%", "num"], ["oosPF", "OOS PF", "num"],
+                    ["oosTrades", "OOS Trades", "int"],
+                    ["entry", "Entry", "price"], ["stop", "Stop", "price"], ["target", "Target", "price"],
+                    ["qualified", "Pass", "check"],
+                  ]} />
+              </>
+            )}
+
+            {tab === 11 && (
+              <>
+                <div className="conv-summary">
+                  🎯 <b>Pullback (Trend + Fib)</b> — 50 EMA trend filter. Uptrend me price 61.8%/78.6% fib pe retrace → LONG. Downtrend me bounce → SHORT. Research me 82% win-rate claim (quantifiedstrategies). Sirf trend direction me trade. Walk-forward 70/30 honest OOS test. Daily ya 4h timeframe best.
+                </div>
+                <ResultTable res={displayRows} cotMap={{}} onSort={handleSort} sortKey={sortKey} sortAsc={sortAsc}
+                  onTake={(r) => takeTrade(r, "pullback")} onChart={loadChart}
+                  cols={[
+                    ["strategy", "Fib Level", "text"], ["live", "Signal", "pill"],
                     ["isWin", "IS Win%", "num"], ["isPF", "IS PF", "num"],
                     ["oosWin", "OOS Win%", "num"], ["oosPF", "OOS PF", "num"],
                     ["oosTrades", "OOS Trades", "int"],

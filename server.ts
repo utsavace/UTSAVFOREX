@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
-import { walkForward, candidateSignals, divergence, fibCandidates, londonBreakout, type Gate } from "./server/strategies";
+import { walkForward, candidateSignals, divergence, fibCandidates, londonBreakout, openingRangeBreakout, pullbackCandidates, type Gate } from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
@@ -380,6 +380,41 @@ app.get("/api/london-breakout", async (req, res) => {
       const wf = walkForward(c, strat, 8, ALLOW_SHORT, gate);
       if (!wf) { out.push({ symbol: sym, error: "not enough data for 70/30 split" }); continue; }
       out.push({ symbol: sym, signals, ...wf });
+    } catch (e: any) { out.push({ symbol: sym, error: e?.message || "fetch failed" }); }
+  }
+  res.json(out);
+});
+
+app.get("/api/orb", async (req, res) => {
+  const gate = gateOf(req);
+  const start = startSec(String(req.query.start || "2022-01-01"));
+  const anchor = Number(req.query.anchor ?? 7);
+  const out: any[] = [];
+  for (const sym of symbols(req)) {
+    try {
+      const c = await fetchHistory(sym, start, "1h");
+      if (c.length < 200) { out.push({ symbol: sym, error: "not enough 1h data" }); continue; }
+      const { long, short } = openingRangeBreakout(c, anchor);
+      const signals = long.filter(Boolean).length + short.filter(Boolean).length;
+      const wf = walkForward(c, [{ name: "Opening Range Breakout", long, short }], 6, ALLOW_SHORT, gate);
+      if (!wf) { out.push({ symbol: sym, error: "not enough data for 70/30 split" }); continue; }
+      out.push({ symbol: sym, signals, ...wf });
+    } catch (e: any) { out.push({ symbol: sym, error: e?.message || "fetch failed" }); }
+  }
+  res.json(out);
+});
+
+app.get("/api/pullback", async (req, res) => {
+  const { interval, start } = ctx(req);
+  const gate = gateOf(req);
+  const out: any[] = [];
+  for (const sym of symbols(req)) {
+    try {
+      const c = await fetchHistory(sym, start, interval);
+      if (c.length < 80) { out.push({ symbol: sym, error: "not enough data" }); continue; }
+      const wf = walkForward(c, pullbackCandidates(c), HOLD, ALLOW_SHORT, gate);
+      if (!wf) { out.push({ symbol: sym, error: "not enough data for 70/30 split" }); continue; }
+      out.push({ symbol: sym, ...wf });
     } catch (e: any) { out.push({ symbol: sym, error: e?.message || "fetch failed" }); }
   }
   res.json(out);

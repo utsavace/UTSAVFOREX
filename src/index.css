@@ -25,6 +25,11 @@
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --sans: "Outfit", system-ui, sans-serif;
   --radius: 12px;
+
+  --accent: var(--gold);
+  --border: var(--line);
+  --muted: var(--text-2);
+  --bg-card: var(--panel-2);
 }
 
 * { box-sizing: border-box; }
@@ -344,9 +349,6 @@ td.sym.clickable:hover { color: var(--gold); text-decoration: underline dotted; 
 .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
 .tab-btn .badge { background:var(--accent); color:#000; border-radius:10px; padding:1px 6px; font-size:10px; margin-left:6px; }
 
-.run-btn { padding:8px 20px; background:var(--accent); color:#0a0f17; border:none; border-radius:6px; font-weight:700; cursor:pointer; font-size:13px; }
-.run-btn:disabled { opacity:.5; cursor:not-allowed; }
-.run-btn.loading { background:var(--border); color:var(--muted); }
 .search-box { padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; width:160px; }
 
 /* Strategy legend */

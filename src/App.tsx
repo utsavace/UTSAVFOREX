@@ -227,7 +227,7 @@ export default function App() {
               <div style={{ marginTop: 12 }}>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                   {(["Forex", "Crypto", "Comm", "Stock"] as const).map(cat => (
-                    <button key={cat} className="toggle-filter-btn"
+                    <button key={cat} className="toggle-filter-btn" style={{ fontSize: 11, padding: "3px 10px" }}
                       onClick={() => {
                         const catSyms = ASSETS.filter(a => a.cat === cat).map(a => a.sym);
                         const allOn = catSyms.every(s => selected.includes(s));
@@ -376,6 +376,12 @@ export default function App() {
                         {!sig.rsiVal && <div className="sc-note muted">{sig.note}</div>}
                         <div className="sc-stats muted">
                           OOS PF <b style={{ color: "#fbbf24" }}>{sig.oosPF}</b> · Win <b>{sig.winRate}%</b>
+                          {row.cot && (
+                            <span className={`cot-badge ${row.cot.contrarian === sig.dir ? "cot-agree" : row.cot.bias === "neutral" ? "cot-neutral" : "cot-conflict"}`}>
+                              COT {row.cot.bias === "neutral" ? "neutral" : row.cot.bias} · {row.cot.index}
+                              {row.cot.contrarian === sig.dir ? " ✅ agrees" : row.cot.bias !== "neutral" ? " ⚠️ conflicts" : ""}
+                            </span>
+                          )}
                         </div>
                         <button className="take-btn" onClick={() => takeTrade(row.symbol, sig)}>
                           ✋ Take this trade

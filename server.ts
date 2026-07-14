@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
 import { fiveEmaFiltered, cryptoEMATrend, forexRSIMeanRev } from "./server/strategies";
+import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
 import { registerFundingTest } from "./server/funding";
@@ -80,6 +81,12 @@ app.get("/api/screener", async (req, res) => {
       const c = await getHistory(sym, start, "1d");
       if (c.length < 60) { out.push({ symbol: sym, error: "not enough data" }); continue; }
 
+      // ── COT (jo assets supported hain unke liye) ──
+      let cot: any = null;
+      if (cotSupported(sym)) {
+        try { cot = await fetchCot(sym, 52); } catch { cot = null; }
+      }
+
       const cat = String(req.query.cat?.[syms.indexOf(sym)] || "");
       const row: any = { symbol: sym, signals: [] };
 
@@ -140,8 +147,8 @@ app.get("/api/screener", async (req, res) => {
         }
       }
 
-      if (row.signals.length > 0) out.push(row);
-      else out.push({ symbol: sym, signals: [] }); // no signal today
+      if (row.signals.length > 0) out.push({ ...row, cot });
+      else out.push({ symbol: sym, signals: [], cot }); // no signal today
 
     } catch (e: any) {
       out.push({ symbol: sym, error: e?.message || "fetch failed" });
@@ -168,14 +175,27 @@ function resolveTrade(t: JTrade, candles: Candle[], asOf: string | null): boolea
   if (!series.length) return false;
   let changed = false;
   const dir = t.direction === "SHORT" ? -1 : 1;
+
   if (t.status === "PENDING") {
+    const last = series[series.length - 1];
+    t.currentPrice = +last.close.toFixed(5);
+    // Check: SL already breached before entry? Mark invalid.
+    if (dir === 1 && last.close <= t.stopPrice) {
+      t.status = "SL_HIT"; t.exitPrice = +last.close.toFixed(5);
+      t.exitDate = day(last.date); t.returnPct = -100; return true;
+    }
+    if (dir === -1 && last.close >= t.stopPrice) {
+      t.status = "SL_HIT"; t.exitPrice = +last.close.toFixed(5);
+      t.exitDate = day(last.date); t.returnPct = -100; return true;
+    }
     const ref = t.takenAsOf || day(t.takenAt);
     const idx = series.findIndex((c) => day(c.date) > ref);
-    if (idx === -1) { t.currentPrice = +series[series.length - 1].close.toFixed(5); return false; }
+    if (idx === -1) { return false; }
     t.entryDate = day(series[idx].date);
     t.entryPrice = +series[idx].open.toFixed(5);
     t.status = "OPEN"; changed = true;
   }
+
   if (t.status !== "OPEN" || t.entryDate == null || t.entryPrice == null) return changed;
   const startIdx = series.findIndex((c) => day(c.date) >= (t.entryDate as string));
   if (startIdx === -1) return changed;
@@ -273,6 +293,22 @@ journalRoutes("/api/trades", LIVE_JOURNAL);
 registerJournalRoutes(app);
 registerScoreBacktest(app);
 registerFundingTest(app);
+
+// ── Standalone COT endpoint — sabhi supported assets ──
+app.get("/api/cot-all", async (req, res) => {
+  const syms = String(req.query.symbols || "").split(",").map(s => s.trim()).filter(Boolean);
+  const out: any[] = [];
+  for (const sym of syms) {
+    if (!cotSupported(sym)) { out.push({ symbol: sym, supported: false }); continue; }
+    try {
+      const cot = await fetchCot(sym, 52);
+      out.push({ symbol: sym, supported: true, ...cot });
+    } catch (e: any) {
+      out.push({ symbol: sym, supported: true, error: e?.message || "COT fetch failed" });
+    }
+  }
+  res.json(out);
+});
 
 // ── Boot ──
 async function start() {

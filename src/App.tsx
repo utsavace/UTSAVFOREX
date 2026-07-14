@@ -227,7 +227,7 @@ export default function App() {
               <div style={{ marginTop: 12 }}>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                   {(["Forex", "Crypto", "Comm", "Stock"] as const).map(cat => (
-                    <button key={cat} className="toggle-filter-btn" style={{ fontSize: 11, padding: "3px 10px" }}
+                    <button key={cat} className="toggle-filter-btn"
                       onClick={() => {
                         const catSyms = ASSETS.filter(a => a.cat === cat).map(a => a.sym);
                         const allOn = catSyms.every(s => selected.includes(s));
@@ -358,7 +358,14 @@ export default function App() {
                       <span className="sc-name" onClick={() => loadChart(row.symbol, hasSig ? row.signals[0] : null)}>
                         {NAME[row.symbol] || row.symbol}
                       </span>
-                      <span className="sc-cat" style={{ color: CAT_COLOR[cat] }}>{cat}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {row.cot && (
+                          <span className={`cot-badge ${row.cot.bias === "neutral" ? "cot-neutral" : "cot-extreme"}`} style={{ margin: 0, padding: "2px 5px", fontSize: "9px" }} title="CFTC Commitments of Traders positioning context">
+                            COT: {row.cot.bias} ({row.cot.index}%)
+                          </span>
+                        )}
+                        <span className="sc-cat" style={{ color: CAT_COLOR[cat] }}>{cat}</span>
+                      </div>
                     </div>
                     {hasSig ? row.signals.map((sig: any, si: number) => (
                       <div key={si} className="sc-signal" style={{ borderLeft: `2px solid ${STRAT_COLOR[sig.strategy] || "#60a5fa"}` }}>
@@ -388,7 +395,17 @@ export default function App() {
                         </button>
                       </div>
                     )) : (
-                      <div className="sc-nosig muted">No signal today</div>
+                      <div className="sc-nosig-container" style={{ padding: "4px 0" }}>
+                        <div className="sc-nosig muted">No signal today</div>
+                        {row.cot && (
+                          <div className="sc-cot-nosig" style={{ fontSize: "10px", marginTop: "4px", color: "var(--text-3)", display: "flex", alignItems: "center", gap: "4px" }}>
+                            <span>Positioning:</span>
+                            <span className={`cot-badge ${row.cot.bias === "neutral" ? "cot-neutral" : "cot-extreme"}`} style={{ margin: 0, padding: "1px 5px", fontSize: "9px" }}>
+                              {row.cot.bias} ({row.cot.index}%)
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 );

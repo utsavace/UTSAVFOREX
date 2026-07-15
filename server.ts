@@ -43,6 +43,23 @@ async function getHistory(sym: string, startSec: number, interval = "1d"): Promi
   return c;
 }
 
+// ── Asset categories (server-side — query parsing pe depend nahi) ──
+const ASSET_CAT: Record<string, string> = {
+  "EURUSD=X": "Forex", "GBPUSD=X": "Forex", "USDJPY=X": "Forex", "USDCHF=X": "Forex",
+  "AUDUSD=X": "Forex", "USDCAD=X": "Forex", "NZDUSD=X": "Forex", "EURJPY=X": "Forex",
+  "GBPJPY=X": "Forex", "EURGBP=X": "Forex", "AUDJPY=X": "Forex",
+  "BTC-USD": "Crypto", "ETH-USD": "Crypto", "SOL-USD": "Crypto",
+  "XRP-USD": "Crypto", "BNB-USD": "Crypto", "DOGE-USD": "Crypto",
+  "GC=F": "Comm", "SI=F": "Comm", "CL=F": "Comm", "BZ=F": "Comm",
+  "HG=F": "Comm", "NG=F": "Comm", "PL=F": "Comm",
+  "AAPL": "Stock", "MSFT": "Stock", "NVDA": "Stock", "TSLA": "Stock",
+  "AMZN": "Stock", "GOOGL": "Stock", "META": "Stock", "NFLX": "Stock",
+  "AMD": "Stock", "AVGO": "Stock", "JPM": "Stock", "BAC": "Stock",
+  "V": "Stock", "MA": "Stock", "XOM": "Stock", "WMT": "Stock",
+  "DIS": "Stock", "BA": "Stock", "KO": "Stock", "PFE": "Stock", "INTC": "Stock",
+  "^GSPC": "Index", "^NDX": "Index", "^RUT": "Index",
+};
+
 // ── Helpers ──
 const day = (d: string) => (d || "").slice(0, 10);
 function startSec(dateStr: string): number {
@@ -87,7 +104,7 @@ app.get("/api/screener", async (req, res) => {
         try { cot = await fetchCot(sym, 52); } catch { cot = null; }
       }
 
-      const cat = String(req.query.cat?.[syms.indexOf(sym)] || "");
+      const cat = ASSET_CAT[sym] || "";
       const row: any = { symbol: sym, signals: [] };
 
       // ── Strategy 1: 5-EMA Filtered (Comm + Crypto + Stock) ──

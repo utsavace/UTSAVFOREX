@@ -144,8 +144,7 @@ export default function App() {
     setBusy(true); setRes([]); setRan(false);
     try {
       const symsParam = selected.join(",");
-      const catParam  = selected.map(s => CAT[s] || "").join(",");
-      const r = await fetch(`/api/screener?symbols=${symsParam}&cat=${catParam}&start=${d1}`);
+      const r = await fetch(`/api/screener?symbols=${symsParam}&start=${d1}`);
       const data = await r.json();
       setRes(Array.isArray(data) ? data : []);
       setRan(true);

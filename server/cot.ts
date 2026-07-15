@@ -51,27 +51,54 @@ export function computeCot(records: CotRecord[], invert = false, weeks = 52): Co
   return { net: Math.round(latest), index: Math.round(index), bias, contrarian, weeks: recent.length };
 }
 
+// In-memory cache — COT weekly release hota hai, 6 ghante cache kaafi hai
+const cotCache = new Map<string, { at: number; info: CotInfo | null }>();
+const COT_TTL = 6 * 60 * 60 * 1000;
+
 export async function fetchCot(symbol: string, weeks = 52): Promise<CotInfo | null> {
   const m = COT_MAP[symbol];
   if (!m) return null;
+
+  const hit = cotCache.get(symbol);
+  if (hit && Date.now() - hit.at < COT_TTL) return hit.info;
+
   const like = m.like.replace(/'/g, "");
+  // market name bhi select karo — multiple markets match hote hain (GOLD + MICRO GOLD etc.)
   const url =
     `https://publicreporting.cftc.gov/resource/${DATASET}.json` +
-    `?$select=report_date_as_yyyy_mm_dd,noncomm_positions_long_all,noncomm_positions_short_all,open_interest_all` +
+    `?$select=report_date_as_yyyy_mm_dd,market_and_exchange_names,noncomm_positions_long_all,noncomm_positions_short_all,open_interest_all` +
     `&$where=upper(market_and_exchange_names) like upper('%25${encodeURIComponent(like)}%25')` +
-    `&$order=report_date_as_yyyy_mm_dd DESC&$limit=${weeks + 4}`;
+    `&$order=report_date_as_yyyy_mm_dd DESC&$limit=${(weeks + 4) * 4}`;
   try {
     const r = await fetch(url, { headers: HEADERS });
-    if (!r.ok) return null;
+    if (!r.ok) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
     const rows: any[] = await r.json();
-    if (!Array.isArray(rows) || !rows.length) return null;
-    const records: CotRecord[] = rows.map((x) => ({
-      date: x.report_date_as_yyyy_mm_dd,
-      ncLong: Number(x.noncomm_positions_long_all) || 0,
-      ncShort: Number(x.noncomm_positions_short_all) || 0,
-      oi: Number(x.open_interest_all) || 0,
-    }));
-    return computeCot(records, m.invert, weeks);
+    if (!Array.isArray(rows) || !rows.length) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
+
+    // Group by market name — "GOLD" query MICRO GOLD bhi laata hai, mix mat karo
+    const byMarket = new Map<string, CotRecord[]>();
+    for (const x of rows) {
+      const name = String(x.market_and_exchange_names || "?");
+      (byMarket.get(name) ?? byMarket.set(name, []).get(name)!).push({
+        date: x.report_date_as_yyyy_mm_dd,
+        ncLong: Number(x.noncomm_positions_long_all) || 0,
+        ncShort: Number(x.noncomm_positions_short_all) || 0,
+        oi: Number(x.open_interest_all) || 0,
+      });
+    }
+
+    // Sabse bada market chuno (highest avg open interest) = main contract
+    let best: CotRecord[] | null = null;
+    let bestOI = -1;
+    for (const recs of byMarket.values()) {
+      const avgOI = recs.reduce((a, r) => a + r.oi, 0) / recs.length;
+      if (avgOI > bestOI) { bestOI = avgOI; best = recs; }
+    }
+    if (!best) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
+
+    const info = computeCot(best, m.invert, weeks);
+    cotCache.set(symbol, { at: Date.now(), info });
+    return info;
   } catch {
     return null;
   }

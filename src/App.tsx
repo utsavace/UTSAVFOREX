@@ -129,10 +129,20 @@ function CotContext({ cot, sigDir }: { cot: any; sigDir?: string }) {
     icon = "⚠️"; bg = "rgba(239,68,68,0.06)"; border = "rgba(239,68,68,0.15)"; color = "#f87171";
     msg = `COT ${sigDir} signal ke against hai — speculators already ${cot.bias === "LONG-crowded" ? "LONG" : "SHORT"} (${idx}%). Extra caution, position size chhoti rakhna.`;
   } else {
-    icon = "ℹ️";
-    if (idx >= 65) msg = `Neutral zone leaning LONG (${idx}%) — koi extreme crowding nahi, lekin long side thoda heavy.`;
-    else if (idx <= 35) msg = `Neutral zone leaning SHORT (${idx}%) — koi extreme crowding nahi, lekin short side thoda heavy.`;
-    else msg = `Balanced (${idx}%) — dono sides equal. COT se koi directional signal nahi.`;
+    // neutral — no sigDir
+    if (bias === "LONG-crowded") {
+      icon = "🔴"; color = "#f87171"; bg = "rgba(239,68,68,0.06)"; border = "rgba(239,68,68,0.15)";
+      msg = `Speculators ${idx}% extreme LONG hain — crowded peak. Fresh buying risky, SHORT ke liye context strong hai.`;
+    } else if (bias === "SHORT-crowded") {
+      icon = "🟢"; color = "#4ade80"; bg = "rgba(16,185,129,0.06)"; border = "rgba(16,185,129,0.15)";
+      msg = `Speculators ${idx}% extreme SHORT hain — crowded bottom. Fresh selling risky, LONG ke liye context strong hai.`;
+    } else if (idx >= 65) {
+      msg = `Neutral leaning LONG (${idx}%) — koi extreme nahi, par long side thoda heavy.`;
+    } else if (idx <= 35) {
+      msg = `Neutral leaning SHORT (${idx}%) — koi extreme nahi, par short side thoda heavy.`;
+    } else {
+      msg = `Balanced (${idx}%) — dono sides equal. COT se koi directional signal nahi.`;
+    }
   }
   return (
     <div style={{ marginTop: 5, padding: "6px 9px", borderRadius: 5, fontSize: 10.5, lineHeight: 1.4, background: bg, border: `1px solid ${border}`, color }}>

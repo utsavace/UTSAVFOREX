@@ -154,167 +154,175 @@ function CotContext({ cot, sigDir }: { cot: any; sigDir?: string }) {
 // ══════════════════════════════════════════════
 //  COT DASHBOARD — Full positioning view
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  COT DASHBOARD
+// ══════════════════════════════════════════════
 function CotDashboard() {
-  const [data, setData] = useState<any[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [ran, setRan]   = useState(false);
+  const [cotData, setCotData] = useState<any[]>([]);
+  const [busy, setBusy]       = useState(false);
+  const [ran,  setRan]        = useState(false);
 
-  const COT_ASSETS = Object.keys(CAT).filter(s => [
+  const COT_SYMS = [
     "EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X",
     "GC=F","SI=F","CL=F","NG=F",
     "BTC-USD","ETH-USD",
-    "^GSPC","^NDX","^RUT"
-  ].includes(s));
+    "^GSPC","^NDX","^RUT",
+  ];
 
-  async function loadCot() {
-    setBusy(true); setData([]); setRan(false);
+  async function load() {
+    setBusy(true); setCotData([]); setRan(false);
     try {
-      const r = await fetch(`/api/cot-all?symbols=${COT_ASSETS.join(",")}`);
+      const r = await fetch(`/api/cot-all?symbols=${COT_SYMS.join(",")}`);
       const d = await r.json();
-      setData(Array.isArray(d) ? d : []);
+      setCotData(Array.isArray(d) ? d : []);
       setRan(true);
-    } catch { setData([]); }
+    } catch { setCotData([]); setRan(true); }
     finally { setBusy(false); }
   }
 
-  // Color based on index
   const mColor = (idx: number) => idx >= 80 ? "#ef4444" : idx <= 20 ? "#10b981" : "#94a3b8";
-  const bgColor = (idx: number) => idx >= 80 ? "rgba(239,68,68,0.07)" : idx <= 20 ? "rgba(16,185,129,0.07)" : "rgba(148,163,184,0.04)";
-  const borderColor = (idx: number) => idx >= 80 ? "rgba(239,68,68,0.2)" : idx <= 20 ? "rgba(16,185,129,0.2)" : "rgba(148,163,184,0.12)";
+  const safe = (d: any) => typeof d?.index === "number" && !d.error;
 
-  const extreme = data.filter(d => !d.error && (d.index >= 80 || d.index <= 20));
-  const neutral = data.filter(d => !d.error && d.index > 20 && d.index < 80);
-  const errors  = data.filter(d => d.error);
+  const extreme = [...cotData].filter(d => safe(d) && (d.index >= 80 || d.index <= 20))
+    .sort((a, b) => {
+      const ae = a.index <= 20 ? a.index : 200 - a.index;
+      const be = b.index <= 20 ? b.index : 200 - b.index;
+      return ae - be;
+    });
+  const neutral = [...cotData].filter(d => safe(d) && d.index > 20 && d.index < 80)
+    .sort((a, b) => a.index - b.index);
+  const failed  = cotData.filter(d => d.error || !safe(d));
 
   return (
     <section className="panel main-panel">
       {/* Header */}
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <button className={`run-btn ${busy ? "loading" : ""}`} onClick={loadCot} disabled={busy} style={{ minWidth: 180 }}>
-            {busy ? "⏳ Fetching COT…" : "📡 Load COT Data"}
+          <button className={`run-btn ${busy ? "loading" : ""}`} onClick={load} disabled={busy} style={{ minWidth: 180 }}>
+            {busy ? "⏳ Fetching…" : "📡 Load COT Data"}
           </button>
-          {ran && (
-            <span style={{ fontSize: 12, color: "#64748b" }}>
-              CFTC data · 52-week positioning · Weekly update (Fri)
-            </span>
-          )}
+          {ran && <span style={{ fontSize: 11, color: "#64748b" }}>CFTC · 52-week positioning · Weekly (Fri update)</span>}
         </div>
-
         {/* Legend */}
-        <div style={{ display: "flex", gap: 20, marginTop: 12, flexWrap: "wrap", fontSize: 11 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 24, height: 8, background: "#10b981", borderRadius: 2 }} />
-            <span style={{ color: "#64748b" }}>SHORT-crowded (0-20%) — contrarian LONG setup</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 24, height: 8, background: "#94a3b8", borderRadius: 2 }} />
-            <span style={{ color: "#64748b" }}>Neutral (21-79%) — no extreme</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 24, height: 8, background: "#ef4444", borderRadius: 2 }} />
-            <span style={{ color: "#64748b" }}>LONG-crowded (80-100%) — contrarian SHORT setup</span>
-          </div>
+        <div style={{ display: "flex", gap: 18, marginTop: 10, flexWrap: "wrap", fontSize: 11 }}>
+          {[
+            { color: "#10b981", label: "0–20% SHORT-crowded → contrarian LONG" },
+            { color: "#94a3b8", label: "21–79% Neutral" },
+            { color: "#ef4444", label: "80–100% LONG-crowded → contrarian SHORT" },
+          ].map(({ color, label }) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 20, height: 7, background: color, borderRadius: 2 }} />
+              <span style={{ color: "#64748b" }}>{label}</span>
+            </div>
+          ))}
         </div>
       </div>
 
       {!ran && !busy && (
         <div className="empty">
-          <b>📡 Load COT Data</b> dabao — CFTC se 16 assets ka 52-week positioning aayega.<br />
+          <b>📡 Load COT Data</b> dabao<br />
           <span className="muted" style={{ fontSize: 12 }}>
-            Forex · Commodities · Crypto · Indices · Weekly CFTC data
+            16 assets · Forex · Commodities · Crypto · Indices
           </span>
         </div>
       )}
 
-      {/* Extreme section */}
-      {ran && extreme.length > 0 && (
+      {/* Extreme */}
+      {extreme.length > 0 && (
         <>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 10, marginTop: 4 }}>
-            ⚡ EXTREME POSITIONING ({extreme.length} assets) — Potential contrarian setups
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 10 }}>
+            ⚡ EXTREME ({extreme.length}) — Contrarian setups
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10, marginBottom: 20 }}>
-            {extreme.sort((a,b) => {
-              // SHORT-crowded (low index) first, then LONG-crowded (high index)
-              const aExt = a.index <= 20 ? a.index : 200 - a.index;
-              const bExt = b.index <= 20 ? b.index : 200 - b.index;
-              return aExt - bExt;
-            }).map((d, i) => (
-              <div key={i} style={{ background: bgColor(d.index), border: `1px solid ${borderColor(d.index)}`, borderRadius: 10, padding: "12px 14px" }}>
-                {/* Asset header */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{NAME[d.symbol] || d.symbol}</span>
-                  <span style={{ fontSize: 10, color: CAT_COLOR[CAT[d.symbol]] || "#64748b", fontWeight: 600 }}>
-                    {CAT[d.symbol] || ""}
-                  </span>
-                </div>
-                {/* Meter */}
-                <div style={{ marginBottom: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#475569", marginBottom: 3 }}>
-                    <span style={{ color: "#10b981" }}>◀ SHORT</span>
-                    <span style={{ color: mColor(d.index), fontWeight: 700, fontSize: 11 }}>
-                      {d.bias} · {d.index}%
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 10, marginBottom: 18 }}>
+            {extreme.map((d, i) => {
+              const idx  = d.index ?? 50;
+              const mc   = mColor(idx);
+              const bg   = idx >= 80 ? "rgba(239,68,68,0.07)" : "rgba(16,185,129,0.07)";
+              const bor  = idx >= 80 ? "rgba(239,68,68,0.22)" : "rgba(16,185,129,0.22)";
+              const net  = typeof d.net === "number" ? d.net : null;
+              return (
+                <div key={i} style={{ background: bg, border: `1px solid ${bor}`, borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{NAME[d.symbol] || d.symbol}</span>
+                    <span style={{ fontSize: 10, color: CAT_COLOR[CAT[d.symbol] || ""] || "#64748b", fontWeight: 600 }}>
+                      {CAT[d.symbol] || ""}
                     </span>
-                    <span style={{ color: "#ef4444" }}>LONG ▶</span>
                   </div>
-                  <div style={{ height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 4, position: "relative" }}>
-                    <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.4)" }} />
-                    <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.4)" }} />
-                    <div style={{ width: `${d.index}%`, height: "100%", background: mColor(d.index), borderRadius: 4 }} />
+                  {/* Meter */}
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#475569", marginBottom: 3 }}>
+                      <span style={{ color: "#10b981" }}>◀ SHORT</span>
+                      <span style={{ color: mc, fontWeight: 700 }}>{d.bias} {idx}%</span>
+                      <span style={{ color: "#ef4444" }}>LONG ▶</span>
+                    </div>
+                    <div style={{ height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 4, position: "relative", overflow: "hidden" }}>
+                      <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.35)" }} />
+                      <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.35)" }} />
+                      <div style={{ width: `${Math.min(100, Math.max(0, idx))}%`, height: "100%", background: mc, borderRadius: 4 }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#334155", marginTop: 2 }}>
+                      <span>0</span><span style={{ color: "#475569" }}>Extreme zones</span><span>100</span>
+                    </div>
+                  </div>
+                  {net !== null && (
+                    <div style={{ fontSize: 10.5, color: "#64748b", marginBottom: 6 }}>
+                      Net position: <b style={{ color: "#cbd5e1" }}>{net > 0 ? "+" : ""}{net.toLocaleString()}</b> contracts
+                      {d.weeks ? ` · ${d.weeks}w data` : ""}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: mc, fontWeight: 600 }}>
+                    {idx <= 20
+                      ? "🟢 Contrarian LONG — extreme short crowding. Wait for price signal."
+                      : "🔴 Contrarian SHORT — extreme long crowding. Wait for price signal."}
                   </div>
                 </div>
-                {/* Net position */}
-                <div style={{ fontSize: 10.5, color: "#64748b", marginBottom: 6 }}>
-                  Net speculator position: <b style={{ color: "#cbd5e1" }}>{d.net > 0 ? "+" : ""}{d.net?.toLocaleString()}</b> contracts · <b>{d.weeks}w</b> data
-                </div>
-                {/* Actionable insight */}
-                <div style={{ fontSize: 11, color: mColor(d.index), fontWeight: 600 }}>
-                  {d.index <= 20
-                    ? `🟢 Contrarian LONG context — speculators extreme SHORT. Wait for price signal.`
-                    : `🔴 Contrarian SHORT context — speculators extreme LONG. Wait for price signal.`
-                  }
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
 
-      {/* Neutral section */}
-      {ran && neutral.length > 0 && (
+      {/* Neutral */}
+      {neutral.length > 0 && (
         <>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>
-            ○ NEUTRAL POSITIONING ({neutral.length} assets)
+            ○ NEUTRAL ({neutral.length})
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
-            {neutral.sort((a,b) => a.index - b.index).map((d, i) => (
-              <div key={i} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(148,163,184,0.1)", borderRadius: 8, padding: "10px 12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{NAME[d.symbol] || d.symbol}</span>
-                  <span style={{ fontSize: 10, color: "#475569" }}>{d.index}%</span>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 8 }}>
+            {neutral.map((d, i) => {
+              const idx = d.index ?? 50;
+              const net = typeof d.net === "number" ? d.net : null;
+              return (
+                <div key={i} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(148,163,184,0.1)", borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{NAME[d.symbol] || d.symbol}</span>
+                    <span style={{ fontSize: 10, color: "#475569" }}>{idx}%</span>
+                  </div>
+                  <div style={{ height: 5, background: "rgba(255,255,255,0.05)", borderRadius: 3, position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.2)" }} />
+                    <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.2)" }} />
+                    <div style={{ width: `${Math.min(100, Math.max(0, idx))}%`, height: "100%", background: "#475569", borderRadius: 3 }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
+                    {idx <= 35 ? "Leaning SHORT" : idx >= 65 ? "Leaning LONG" : "Balanced"}
+                    {net !== null ? ` · ${net > 0 ? "+" : ""}${net.toLocaleString()}` : ""}
+                  </div>
                 </div>
-                <div style={{ height: 5, background: "rgba(255,255,255,0.05)", borderRadius: 3, position: "relative" }}>
-                  <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.2)" }} />
-                  <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.2)" }} />
-                  <div style={{ width: `${d.index}%`, height: "100%", background: "#475569", borderRadius: 3 }} />
-                </div>
-                <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
-                  {d.index <= 40 ? "Leaning SHORT" : d.index >= 60 ? "Leaning LONG" : "Balanced"} · Net {d.net > 0 ? "+" : ""}{d.net?.toLocaleString()}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
 
-      {errors.length > 0 && (
+      {failed.length > 0 && ran && (
         <div style={{ marginTop: 12, fontSize: 11, color: "#475569" }}>
-          {errors.map((e, i) => <div key={i}>❌ {NAME[e.symbol] || e.symbol}: {e.error}</div>)}
+          {failed.map((e, i) => <div key={i}>❌ {NAME[e.symbol] || e.symbol}: {e.error || "no data"}</div>)}
         </div>
       )}
     </section>
   );
 }
+
 
 export default function App() {
   const [tab, setTab] = useState<"screener" | "cot" | "journal">("screener");

@@ -87,6 +87,35 @@ function Pill({ v }: { v: string }) {
   return <span className={`pill ${k}`}>{v === "-" ? "flat" : v}</span>;
 }
 
+const getCotExplanation = (cot: any, sigDir?: string) => {
+  if (!cot) return "";
+  const idx = cot.index;
+  const bias = cot.bias; // "LONG-crowded" | "SHORT-crowded" | "neutral"
+  
+  if (bias === "LONG-crowded") {
+    if (sigDir === "LONG") {
+      return `⚠️ Be Careful: Bade players 1 saal ke high ke mukable extremely long (${idx}%) hain (over-crowded). Upper side par reverse hone ka risk hai, isliye BUY trade force mat karo!`;
+    }
+    if (sigDir === "SHORT") {
+      return `✅ Confluence: Bade players heavily long (${idx}%) aur crowded hain. Peak se reversal aane ke chances high hain, isliye SHORT trade bilkul sahi timed hai!`;
+    }
+    return `Bade players heavily LONG (${idx}%) hain, isliye upar trend thoda stretched (crowded) lag raha hai. Caution on fresh buying.`;
+  }
+  
+  if (bias === "SHORT-crowded") {
+    if (sigDir === "SHORT") {
+      return `⚠️ Be Careful: Bade players 1 saal ke low ke mukable extremely short (${idx}%) hain (over-crowded). Bottom par short positions riskier hain, bounce ya squeeze ho sakta hai!`;
+    }
+    if (sigDir === "LONG") {
+      return `✅ Confluence: Bade players heavily short (${idx}%) aur crowded hain. Bottom range se bounce/short-squeeze ho sakta hai, isliye LONG trade bilkul sahi aligned hai!`;
+    }
+    return `Bade players heavily SHORT (${idx}%) hain. Downside heavily crowded hai, bottom out ya sharp bounce expected hai.`;
+  }
+  
+  // Neutral Range (21% to 79%)
+  return `ℹ️ Neutral range (${idx}%): Bade players normal bounds me hain. Koi extreme crowd ya squeeze risk nahi hai. Market standard direction me safely move hoga, force mat karo.`;
+};
+
 export default function App() {
   const [tab, setTab]       = useState<"screener" | "journal">("screener");
   const [selected, setSelected] = useState<string[]>(ASSETS.map(a => a.sym));
@@ -390,6 +419,34 @@ export default function App() {
                             </span>
                           )}
                         </div>
+                        {row.cot && (
+                          <div style={{
+                            marginTop: "8px",
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            lineHeight: "1.4",
+                            background: row.cot.contrarian === sig.dir 
+                              ? "rgba(34,197,94,0.08)" 
+                              : row.cot.bias === "neutral" 
+                                ? "rgba(148,163,184,0.04)" 
+                                : "rgba(239,68,68,0.08)",
+                            border: `1px solid ${
+                              row.cot.contrarian === sig.dir 
+                                ? "rgba(34,197,94,0.2)" 
+                                : row.cot.bias === "neutral" 
+                                  ? "rgba(148,163,184,0.15)" 
+                                  : "rgba(239,68,68,0.2)"
+                            }`,
+                            color: row.cot.contrarian === sig.dir 
+                              ? "#4ade80" 
+                              : row.cot.bias === "neutral" 
+                                ? "#94a3b8" 
+                                : "#f87171"
+                          }}>
+                            {getCotExplanation(row.cot, sig.dir)}
+                          </div>
+                        )}
                         <button className="take-btn" onClick={() => takeTrade(row.symbol, sig)}>
                           ✋ Take this trade
                         </button>
@@ -398,11 +455,25 @@ export default function App() {
                       <div className="sc-nosig-container" style={{ padding: "4px 0" }}>
                         <div className="sc-nosig muted">No signal today</div>
                         {row.cot && (
-                          <div className="sc-cot-nosig" style={{ fontSize: "10px", marginTop: "4px", color: "var(--text-3)", display: "flex", alignItems: "center", gap: "4px" }}>
-                            <span>Positioning:</span>
-                            <span className={`cot-badge ${row.cot.bias === "neutral" ? "cot-neutral" : "cot-extreme"}`} style={{ margin: 0, padding: "1px 5px", fontSize: "9px" }}>
-                              {row.cot.bias} ({row.cot.index}%)
-                            </span>
+                          <div style={{ marginTop: "6px" }}>
+                            <div className="sc-cot-nosig" style={{ fontSize: "10px", color: "var(--text-3)", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <span>Positioning:</span>
+                              <span className={`cot-badge ${row.cot.bias === "neutral" ? "cot-neutral" : "cot-extreme"}`} style={{ margin: 0, padding: "1px 5px", fontSize: "9px" }}>
+                                {row.cot.bias} ({row.cot.index}%)
+                              </span>
+                            </div>
+                            <div style={{
+                              marginTop: "4px",
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              fontSize: "10.5px",
+                              lineHeight: "1.35",
+                              background: "rgba(148,163,184,0.04)",
+                              border: "1px solid rgba(148,163,184,0.1)",
+                              color: "#94a3b8"
+                            }}>
+                              {getCotExplanation(row.cot)}
+                            </div>
                           </div>
                         )}
                       </div>

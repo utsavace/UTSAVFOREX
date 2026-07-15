@@ -87,37 +87,227 @@ function Pill({ v }: { v: string }) {
   return <span className={`pill ${k}`}>{v === "-" ? "flat" : v}</span>;
 }
 
-const getCotExplanation = (cot: any, sigDir?: string) => {
-  if (!cot) return "";
-  const idx = cot.index;
-  const bias = cot.bias; // "LONG-crowded" | "SHORT-crowded" | "neutral"
-  
-  if (bias === "LONG-crowded") {
-    if (sigDir === "LONG") {
-      return `⚠️ Be Careful: Bade players 1 saal ke high ke mukable extremely long (${idx}%) hain (over-crowded). Upper side par reverse hone ka risk hai, isliye BUY trade force mat karo!`;
-    }
-    if (sigDir === "SHORT") {
-      return `✅ Confluence: Bade players heavily long (${idx}%) aur crowded hain. Peak se reversal aane ke chances high hain, isliye SHORT trade bilkul sahi timed hai!`;
-    }
-    return `Bade players heavily LONG (${idx}%) hain, isliye upar trend thoda stretched (crowded) lag raha hai. Caution on fresh buying.`;
+// ── COT Visual Components ──
+function CotMeter({ cot }: { cot: any }) {
+  if (!cot) return null;
+  const idx = cot.index ?? 50;
+  const meterColor = idx >= 80 ? "#ef4444" : idx <= 20 ? "#10b981" : "#94a3b8";
+  const label = cot.bias === "LONG-crowded" ? "Crowded LONG" : cot.bias === "SHORT-crowded" ? "Crowded SHORT" : "Neutral";
+  return (
+    <div style={{ marginTop: 7 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#475569", marginBottom: 3 }}>
+        <span style={{ color: "#10b981" }}>◀ SHORT</span>
+        <span style={{ color: meterColor, fontWeight: 700 }}>{label} {idx}%</span>
+        <span style={{ color: "#ef4444" }}>LONG ▶</span>
+      </div>
+      <div style={{ height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 2, position: "relative" }}>
+        <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.3)" }} />
+        <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.3)" }} />
+        <div style={{ width: `${idx}%`, height: "100%", background: meterColor, borderRadius: 2, transition: "width .3s" }} />
+        <div style={{ position: "absolute", left: `calc(${idx}% - 3px)`, top: -2, width: 6, height: 8, background: meterColor, borderRadius: 1 }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#334155", marginTop: 2 }}>
+        <span>0</span><span>Extreme zone</span><span>100</span>
+      </div>
+    </div>
+  );
+}
+
+function CotContext({ cot, sigDir }: { cot: any; sigDir?: string }) {
+  if (!cot) return null;
+  const idx = cot.index ?? 50;
+  const agrees  = sigDir && cot.contrarian === sigDir;
+  const conflicts = sigDir && cot.bias !== "neutral" && cot.contrarian !== sigDir;
+  let icon = "ℹ️", msg = "", bg = "rgba(148,163,184,0.05)", border = "rgba(148,163,184,0.1)", color = "#64748b";
+  if (agrees) {
+    icon = "✅"; bg = "rgba(34,197,94,0.07)"; border = "rgba(34,197,94,0.18)"; color = "#4ade80";
+    if (cot.bias === "SHORT-crowded")
+      msg = `Speculators ${idx}% extreme SHORT hain — contrarian bounce/squeeze expected. LONG ke liye strong COT backing.`;
+    else
+      msg = `Speculators ${idx}% extreme LONG hain — crowded peak se reversal likely. SHORT ke liye strong COT backing.`;
+  } else if (conflicts) {
+    icon = "⚠️"; bg = "rgba(239,68,68,0.06)"; border = "rgba(239,68,68,0.15)"; color = "#f87171";
+    msg = `COT ${sigDir} signal ke against hai — speculators already ${cot.bias === "LONG-crowded" ? "LONG" : "SHORT"} (${idx}%). Extra caution, position size chhoti rakhna.`;
+  } else {
+    icon = "ℹ️";
+    if (idx >= 65) msg = `Neutral zone leaning LONG (${idx}%) — koi extreme crowding nahi, lekin long side thoda heavy.`;
+    else if (idx <= 35) msg = `Neutral zone leaning SHORT (${idx}%) — koi extreme crowding nahi, lekin short side thoda heavy.`;
+    else msg = `Balanced (${idx}%) — dono sides equal. COT se koi directional signal nahi.`;
   }
-  
-  if (bias === "SHORT-crowded") {
-    if (sigDir === "SHORT") {
-      return `⚠️ Be Careful: Bade players 1 saal ke low ke mukable extremely short (${idx}%) hain (over-crowded). Bottom par short positions riskier hain, bounce ya squeeze ho sakta hai!`;
-    }
-    if (sigDir === "LONG") {
-      return `✅ Confluence: Bade players heavily short (${idx}%) aur crowded hain. Bottom range se bounce/short-squeeze ho sakta hai, isliye LONG trade bilkul sahi aligned hai!`;
-    }
-    return `Bade players heavily SHORT (${idx}%) hain. Downside heavily crowded hai, bottom out ya sharp bounce expected hai.`;
+  return (
+    <div style={{ marginTop: 5, padding: "6px 9px", borderRadius: 5, fontSize: 10.5, lineHeight: 1.4, background: bg, border: `1px solid ${border}`, color }}>
+      {icon} {msg}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+//  COT DASHBOARD — Full positioning view
+// ══════════════════════════════════════════════
+function CotDashboard() {
+  const [data, setData] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [ran, setRan]   = useState(false);
+
+  const COT_ASSETS = Object.keys(CAT).filter(s => [
+    "EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X",
+    "GC=F","SI=F","CL=F","NG=F",
+    "BTC-USD","ETH-USD",
+    "^GSPC","^NDX","^RUT"
+  ].includes(s));
+
+  async function loadCot() {
+    setBusy(true); setData([]); setRan(false);
+    try {
+      const r = await fetch(`/api/cot-all?symbols=${COT_ASSETS.join(",")}`);
+      const d = await r.json();
+      setData(Array.isArray(d) ? d : []);
+      setRan(true);
+    } catch { setData([]); }
+    finally { setBusy(false); }
   }
-  
-  // Neutral Range (21% to 79%)
-  return `ℹ️ Neutral range (${idx}%): Bade players normal bounds me hain. Koi extreme crowd ya squeeze risk nahi hai. Market standard direction me safely move hoga, force mat karo.`;
-};
+
+  // Color based on index
+  const mColor = (idx: number) => idx >= 80 ? "#ef4444" : idx <= 20 ? "#10b981" : "#94a3b8";
+  const bgColor = (idx: number) => idx >= 80 ? "rgba(239,68,68,0.07)" : idx <= 20 ? "rgba(16,185,129,0.07)" : "rgba(148,163,184,0.04)";
+  const borderColor = (idx: number) => idx >= 80 ? "rgba(239,68,68,0.2)" : idx <= 20 ? "rgba(16,185,129,0.2)" : "rgba(148,163,184,0.12)";
+
+  const extreme = data.filter(d => !d.error && (d.index >= 80 || d.index <= 20));
+  const neutral = data.filter(d => !d.error && d.index > 20 && d.index < 80);
+  const errors  = data.filter(d => d.error);
+
+  return (
+    <section className="panel main-panel">
+      {/* Header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <button className={`run-btn ${busy ? "loading" : ""}`} onClick={loadCot} disabled={busy} style={{ minWidth: 180 }}>
+            {busy ? "⏳ Fetching COT…" : "📡 Load COT Data"}
+          </button>
+          {ran && (
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              CFTC data · 52-week positioning · Weekly update (Fri)
+            </span>
+          )}
+        </div>
+
+        {/* Legend */}
+        <div style={{ display: "flex", gap: 20, marginTop: 12, flexWrap: "wrap", fontSize: 11 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 24, height: 8, background: "#10b981", borderRadius: 2 }} />
+            <span style={{ color: "#64748b" }}>SHORT-crowded (0-20%) — contrarian LONG setup</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 24, height: 8, background: "#94a3b8", borderRadius: 2 }} />
+            <span style={{ color: "#64748b" }}>Neutral (21-79%) — no extreme</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 24, height: 8, background: "#ef4444", borderRadius: 2 }} />
+            <span style={{ color: "#64748b" }}>LONG-crowded (80-100%) — contrarian SHORT setup</span>
+          </div>
+        </div>
+      </div>
+
+      {!ran && !busy && (
+        <div className="empty">
+          <b>📡 Load COT Data</b> dabao — CFTC se 16 assets ka 52-week positioning aayega.<br />
+          <span className="muted" style={{ fontSize: 12 }}>
+            Forex · Commodities · Crypto · Indices · Weekly CFTC data
+          </span>
+        </div>
+      )}
+
+      {/* Extreme section */}
+      {ran && extreme.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 10, marginTop: 4 }}>
+            ⚡ EXTREME POSITIONING ({extreme.length} assets) — Potential contrarian setups
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10, marginBottom: 20 }}>
+            {extreme.sort((a,b) => {
+              // SHORT-crowded (low index) first, then LONG-crowded (high index)
+              const aExt = a.index <= 20 ? a.index : 200 - a.index;
+              const bExt = b.index <= 20 ? b.index : 200 - b.index;
+              return aExt - bExt;
+            }).map((d, i) => (
+              <div key={i} style={{ background: bgColor(d.index), border: `1px solid ${borderColor(d.index)}`, borderRadius: 10, padding: "12px 14px" }}>
+                {/* Asset header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{NAME[d.symbol] || d.symbol}</span>
+                  <span style={{ fontSize: 10, color: CAT_COLOR[CAT[d.symbol]] || "#64748b", fontWeight: 600 }}>
+                    {CAT[d.symbol] || ""}
+                  </span>
+                </div>
+                {/* Meter */}
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#475569", marginBottom: 3 }}>
+                    <span style={{ color: "#10b981" }}>◀ SHORT</span>
+                    <span style={{ color: mColor(d.index), fontWeight: 700, fontSize: 11 }}>
+                      {d.bias} · {d.index}%
+                    </span>
+                    <span style={{ color: "#ef4444" }}>LONG ▶</span>
+                  </div>
+                  <div style={{ height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 4, position: "relative" }}>
+                    <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.4)" }} />
+                    <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.4)" }} />
+                    <div style={{ width: `${d.index}%`, height: "100%", background: mColor(d.index), borderRadius: 4 }} />
+                  </div>
+                </div>
+                {/* Net position */}
+                <div style={{ fontSize: 10.5, color: "#64748b", marginBottom: 6 }}>
+                  Net speculator position: <b style={{ color: "#cbd5e1" }}>{d.net > 0 ? "+" : ""}{d.net?.toLocaleString()}</b> contracts · <b>{d.weeks}w</b> data
+                </div>
+                {/* Actionable insight */}
+                <div style={{ fontSize: 11, color: mColor(d.index), fontWeight: 600 }}>
+                  {d.index <= 20
+                    ? `🟢 Contrarian LONG context — speculators extreme SHORT. Wait for price signal.`
+                    : `🔴 Contrarian SHORT context — speculators extreme LONG. Wait for price signal.`
+                  }
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Neutral section */}
+      {ran && neutral.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>
+            ○ NEUTRAL POSITIONING ({neutral.length} assets)
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+            {neutral.sort((a,b) => a.index - b.index).map((d, i) => (
+              <div key={i} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(148,163,184,0.1)", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{NAME[d.symbol] || d.symbol}</span>
+                  <span style={{ fontSize: 10, color: "#475569" }}>{d.index}%</span>
+                </div>
+                <div style={{ height: 5, background: "rgba(255,255,255,0.05)", borderRadius: 3, position: "relative" }}>
+                  <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.2)" }} />
+                  <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.2)" }} />
+                  <div style={{ width: `${d.index}%`, height: "100%", background: "#475569", borderRadius: 3 }} />
+                </div>
+                <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
+                  {d.index <= 40 ? "Leaning SHORT" : d.index >= 60 ? "Leaning LONG" : "Balanced"} · Net {d.net > 0 ? "+" : ""}{d.net?.toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {errors.length > 0 && (
+        <div style={{ marginTop: 12, fontSize: 11, color: "#475569" }}>
+          {errors.map((e, i) => <div key={i}>❌ {NAME[e.symbol] || e.symbol}: {e.error}</div>)}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function App() {
-  const [tab, setTab]       = useState<"screener" | "journal">("screener");
+  const [tab, setTab] = useState<"screener" | "cot" | "journal">("screener");
   const [selected, setSelected] = useState<string[]>(ASSETS.map(a => a.sym));
   const [showAssets, setShowAssets] = useState(false);
   const [d1, setD1]         = useState(todayMinus(1825));
@@ -218,6 +408,9 @@ export default function App() {
         <button className={`tab-btn ${tab === "screener" ? "active" : ""}`} onClick={() => setTab("screener")}>
           📊 Strategy Screener
         </button>
+        <button className={`tab-btn ${tab === "cot" ? "active" : ""}`} onClick={() => setTab("cot")}>
+          📡 COT Positioning
+        </button>
         <button className={`tab-btn ${tab === "journal" ? "active" : ""}`} onClick={() => setTab("journal")}>
           📓 My Trades {journalCount !== null && journalCount > 0 && <span className="badge">{journalCount}</span>}
         </button>
@@ -227,6 +420,8 @@ export default function App() {
         <section className="panel main-panel">
           <MyTrades />
         </section>
+      ) : tab === "cot" ? (
+        <CotDashboard />
       ) : (
         <>
           {/* ── Controls ── */}
@@ -419,32 +614,10 @@ export default function App() {
                           )}
                         </div>
                         {row.cot && (
-                          <div style={{
-                            marginTop: "8px",
-                            padding: "8px 10px",
-                            borderRadius: "6px",
-                            fontSize: "11px",
-                            lineHeight: "1.4",
-                            background: row.cot.contrarian === sig.dir 
-                              ? "rgba(34,197,94,0.08)" 
-                              : row.cot.bias === "neutral" 
-                                ? "rgba(148,163,184,0.04)" 
-                                : "rgba(239,68,68,0.08)",
-                            border: `1px solid ${
-                              row.cot.contrarian === sig.dir 
-                                ? "rgba(34,197,94,0.2)" 
-                                : row.cot.bias === "neutral" 
-                                  ? "rgba(148,163,184,0.15)" 
-                                  : "rgba(239,68,68,0.2)"
-                            }`,
-                            color: row.cot.contrarian === sig.dir 
-                              ? "#4ade80" 
-                              : row.cot.bias === "neutral" 
-                                ? "#94a3b8" 
-                                : "#f87171"
-                          }}>
-                            {getCotExplanation(row.cot, sig.dir)}
-                          </div>
+                          <>
+                            <CotMeter cot={row.cot} />
+                            <CotContext cot={row.cot} sigDir={sig.dir} />
+                          </>
                         )}
                         <button className="take-btn" onClick={() => takeTrade(row.symbol, sig)}>
                           ✋ Take this trade
@@ -454,25 +627,9 @@ export default function App() {
                       <div className="sc-nosig-container" style={{ padding: "4px 0" }}>
                         <div className="sc-nosig muted">No signal today</div>
                         {row.cot && (
-                          <div style={{ marginTop: "6px" }}>
-                            <div className="sc-cot-nosig" style={{ fontSize: "10px", color: "var(--text-3)", display: "flex", alignItems: "center", gap: "4px" }}>
-                              <span>Positioning:</span>
-                              <span className={`cot-badge ${row.cot.bias === "neutral" ? "cot-neutral" : "cot-extreme"}`} style={{ margin: 0, padding: "1px 5px", fontSize: "9px" }}>
-                                {row.cot.bias} ({row.cot.index}%)
-                              </span>
-                            </div>
-                            <div style={{
-                              marginTop: "4px",
-                              padding: "6px 8px",
-                              borderRadius: "4px",
-                              fontSize: "10.5px",
-                              lineHeight: "1.35",
-                              background: "rgba(148,163,184,0.04)",
-                              border: "1px solid rgba(148,163,184,0.1)",
-                              color: "#94a3b8"
-                            }}>
-                              {getCotExplanation(row.cot)}
-                            </div>
+                          <div style={{ marginTop: 6 }}>
+                            <CotMeter cot={row.cot} />
+                            <CotContext cot={row.cot} />
                           </div>
                         )}
                       </div>

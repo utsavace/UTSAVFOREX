@@ -87,245 +87,139 @@ function Pill({ v }: { v: string }) {
   return <span className={`pill ${k}`}>{v === "-" ? "flat" : v}</span>;
 }
 
-// ── COT Visual Components ──
-function CotMeter({ cot }: { cot: any }) {
-  if (!cot) return null;
-  const idx = cot.index ?? 50;
-  const meterColor = idx >= 80 ? "#ef4444" : idx <= 20 ? "#10b981" : "#94a3b8";
-  const label = cot.bias === "LONG-crowded" ? "Crowded LONG" : cot.bias === "SHORT-crowded" ? "Crowded SHORT" : "Neutral";
-  return (
-    <div style={{ marginTop: 7 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#475569", marginBottom: 3 }}>
-        <span style={{ color: "#10b981" }}>◀ SHORT</span>
-        <span style={{ color: meterColor, fontWeight: 700 }}>{label} {idx}%</span>
-        <span style={{ color: "#ef4444" }}>LONG ▶</span>
-      </div>
-      <div style={{ height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 2, position: "relative" }}>
-        <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.3)" }} />
-        <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.3)" }} />
-        <div style={{ width: `${idx}%`, height: "100%", background: meterColor, borderRadius: 2, transition: "width .3s" }} />
-        <div style={{ position: "absolute", left: `calc(${idx}% - 3px)`, top: -2, width: 6, height: 8, background: meterColor, borderRadius: 1 }} />
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#334155", marginTop: 2 }}>
-        <span>0</span><span>Extreme zone</span><span>100</span>
-      </div>
-    </div>
-  );
-}
-
-function CotContext({ cot, sigDir }: { cot: any; sigDir?: string }) {
-  if (!cot) return null;
-  const idx = cot.index ?? 50;
-  const agrees  = sigDir && cot.contrarian === sigDir;
-  const conflicts = sigDir && cot.bias !== "neutral" && cot.contrarian !== sigDir;
-  let icon = "ℹ️", msg = "", bg = "rgba(148,163,184,0.05)", border = "rgba(148,163,184,0.1)", color = "#64748b";
-  if (agrees) {
-    icon = "✅"; bg = "rgba(34,197,94,0.07)"; border = "rgba(34,197,94,0.18)"; color = "#4ade80";
-    if (cot.bias === "SHORT-crowded")
-      msg = `Speculators ${idx}% extreme SHORT hain — contrarian bounce/squeeze expected. LONG ke liye strong COT backing.`;
-    else
-      msg = `Speculators ${idx}% extreme LONG hain — crowded peak se reversal likely. SHORT ke liye strong COT backing.`;
-  } else if (conflicts) {
-    icon = "⚠️"; bg = "rgba(239,68,68,0.06)"; border = "rgba(239,68,68,0.15)"; color = "#f87171";
-    msg = `COT ${sigDir} signal ke against hai — speculators already ${cot.bias === "LONG-crowded" ? "LONG" : "SHORT"} (${idx}%). Extra caution, position size chhoti rakhna.`;
-  } else {
-    // neutral — no sigDir
-    if (bias === "LONG-crowded") {
-      icon = "🔴"; color = "#f87171"; bg = "rgba(239,68,68,0.06)"; border = "rgba(239,68,68,0.15)";
-      msg = `Speculators ${idx}% extreme LONG hain — crowded peak. Fresh buying risky, SHORT ke liye context strong hai.`;
-    } else if (bias === "SHORT-crowded") {
-      icon = "🟢"; color = "#4ade80"; bg = "rgba(16,185,129,0.06)"; border = "rgba(16,185,129,0.15)";
-      msg = `Speculators ${idx}% extreme SHORT hain — crowded bottom. Fresh selling risky, LONG ke liye context strong hai.`;
-    } else if (idx >= 65) {
-      msg = `Neutral leaning LONG (${idx}%) — koi extreme nahi, par long side thoda heavy.`;
-    } else if (idx <= 35) {
-      msg = `Neutral leaning SHORT (${idx}%) — koi extreme nahi, par short side thoda heavy.`;
-    } else {
-      msg = `Balanced (${idx}%) — dono sides equal. COT se koi directional signal nahi.`;
+const getCotExplanation = (cot: any, sigDir?: string) => {
+  if (!cot) return "";
+  const idx = cot.index;
+  const bias = cot.bias; // "LONG-crowded" | "SHORT-crowded" | "neutral"
+  
+  if (bias === "LONG-crowded") {
+    if (sigDir === "LONG") {
+      return `⚠️ Be Careful: Bade players 1 saal ke high ke mukable extremely long (${idx}%) hain (over-crowded). Upper side par reverse hone ka risk hai, isliye BUY trade force mat karo!`;
     }
+    if (sigDir === "SHORT") {
+      return `✅ Confluence: Bade players heavily long (${idx}%) aur crowded hain. Peak se reversal aane ke chances high hain, isliye SHORT trade bilkul sahi timed hai!`;
+    }
+    return `Bade players heavily LONG (${idx}%) hain, isliye upar trend thoda stretched (crowded) lag raha hai. Caution on fresh buying.`;
   }
-  return (
-    <div style={{ marginTop: 5, padding: "6px 9px", borderRadius: 5, fontSize: 10.5, lineHeight: 1.4, background: bg, border: `1px solid ${border}`, color }}>
-      {icon} {msg}
-    </div>
-  );
-}
+  
+  if (bias === "SHORT-crowded") {
+    if (sigDir === "SHORT") {
+      return `⚠️ Be Careful: Bade players 1 saal ke low ke mukable extremely short (${idx}%) hain (over-crowded). Bottom par short positions riskier hain, bounce ya squeeze ho sakta hai!`;
+    }
+    if (sigDir === "LONG") {
+      return `✅ Confluence: Bade players heavily short (${idx}%) aur crowded hain. Bottom range se bounce/short-squeeze ho sakta hai, isliye LONG trade bilkul sahi aligned hai!`;
+    }
+    return `Bade players heavily SHORT (${idx}%) hain. Downside heavily crowded hai, bottom out ya sharp bounce expected hai.`;
+  }
+  
+  // Neutral Range (21% to 79%)
+  return `ℹ️ Neutral range (${idx}%): Bade players normal bounds me hain. Koi extreme crowd ya squeeze risk nahi hai. Market standard direction me safely move hoga, force mat karo.`;
+};
 
-// ══════════════════════════════════════════════
-//  COT DASHBOARD — Full positioning view
-// ══════════════════════════════════════════════
-// ══════════════════════════════════════════════
-//  COT DASHBOARD
-// ══════════════════════════════════════════════
 function CotDashboard() {
   const [cotData, setCotData] = useState<any[]>([]);
-  const [busy, setBusy]       = useState(false);
-  const [ran,  setRan]        = useState(false);
-
-  const COT_SYMS = [
-    "EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X",
-    "GC=F","SI=F","CL=F","NG=F",
-    "BTC-USD","ETH-USD",
-    "^GSPC","^NDX","^RUT",
-  ];
-
+  const [busy, setBusy] = useState(false);
+  const [ran, setRan] = useState(false);
+  const COT_SYMS = ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X","GC=F","SI=F","CL=F","NG=F","BTC-USD","ETH-USD","^GSPC","^NDX","^RUT"];
   async function load() {
     setBusy(true); setCotData([]); setRan(false);
     try {
       const r = await fetch(`/api/cot-all?symbols=${COT_SYMS.join(",")}`);
       const d = await r.json();
       setCotData(Array.isArray(d) ? d : []);
-      setRan(true);
-    } catch { setCotData([]); setRan(true); }
-    finally { setBusy(false); }
+    } catch { setCotData([]); }
+    setBusy(false); setRan(true);
   }
-
-  const mColor = (idx: number) => idx >= 80 ? "#ef4444" : idx <= 20 ? "#10b981" : "#94a3b8";
-  const safe = (d: any) => typeof d?.index === "number" && !d.error;
-
-  const extreme = [...cotData].filter(d => safe(d) && (d.index >= 80 || d.index <= 20))
-    .sort((a, b) => {
-      const ae = a.index <= 20 ? a.index : 200 - a.index;
-      const be = b.index <= 20 ? b.index : 200 - b.index;
-      return ae - be;
-    });
-  const neutral = [...cotData].filter(d => safe(d) && d.index > 20 && d.index < 80)
-    .sort((a, b) => a.index - b.index);
-  const failed  = cotData.filter(d => d.error || !safe(d));
-
+  const mc = (i: number) => i >= 80 ? "#ef4444" : i <= 20 ? "#10b981" : "#94a3b8";
+  const ok = (d: any) => d && !d.error && typeof d.index === "number";
+  const extreme = [...cotData].filter(d => ok(d) && (d.index >= 80 || d.index <= 20)).sort((a,b) => (a.index<=20?a.index:200-a.index)-(b.index<=20?b.index:200-b.index));
+  const neutral = [...cotData].filter(d => ok(d) && d.index > 20 && d.index < 80).sort((a,b) => a.index-b.index);
+  const failed  = cotData.filter(d => !ok(d));
   return (
     <section className="panel main-panel">
-      {/* Header */}
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <button className={`run-btn ${busy ? "loading" : ""}`} onClick={load} disabled={busy} style={{ minWidth: 180 }}>
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <button className={`run-btn ${busy?"loading":""}`} onClick={load} disabled={busy} style={{minWidth:180}}>
             {busy ? "⏳ Fetching…" : "📡 Load COT Data"}
           </button>
-          {ran && <span style={{ fontSize: 11, color: "#64748b" }}>CFTC · 52-week positioning · Weekly (Fri update)</span>}
+          {ran && <span style={{fontSize:11,color:"#64748b"}}>CFTC · 52-week · Weekly Fri update</span>}
         </div>
-        {/* Legend */}
-        <div style={{ display: "flex", gap: 18, marginTop: 10, flexWrap: "wrap", fontSize: 11 }}>
-          {[
-            { color: "#10b981", label: "0–20% SHORT-crowded → contrarian LONG" },
-            { color: "#94a3b8", label: "21–79% Neutral" },
-            { color: "#ef4444", label: "80–100% LONG-crowded → contrarian SHORT" },
-          ].map(({ color, label }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 20, height: 7, background: color, borderRadius: 2 }} />
-              <span style={{ color: "#64748b" }}>{label}</span>
-            </div>
-          ))}
+        <div style={{display:"flex",gap:16,marginTop:10,flexWrap:"wrap",fontSize:11}}>
+          <span style={{color:"#10b981"}}>■ 0–20% SHORT-crowded → contrarian LONG</span>
+          <span style={{color:"#94a3b8"}}>■ 21–79% Neutral</span>
+          <span style={{color:"#ef4444"}}>■ 80–100% LONG-crowded → contrarian SHORT</span>
         </div>
       </div>
-
-      {!ran && !busy && (
-        <div className="empty">
-          <b>📡 Load COT Data</b> dabao<br />
-          <span className="muted" style={{ fontSize: 12 }}>
-            16 assets · Forex · Commodities · Crypto · Indices
-          </span>
-        </div>
-      )}
-
-      {/* Extreme */}
+      {!ran && !busy && <div className="empty"><b>📡 Load COT Data</b> dabao</div>}
       {extreme.length > 0 && (
-        <>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 10 }}>
-            ⚡ EXTREME ({extreme.length}) — Contrarian setups
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 10, marginBottom: 18 }}>
-            {extreme.map((d, i) => {
-              const idx  = d.index ?? 50;
-              const mc   = mColor(idx);
-              const bg   = idx >= 80 ? "rgba(239,68,68,0.07)" : "rgba(16,185,129,0.07)";
-              const bor  = idx >= 80 ? "rgba(239,68,68,0.22)" : "rgba(16,185,129,0.22)";
-              const net  = typeof d.net === "number" ? d.net : null;
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#fbbf24",marginBottom:10}}>⚡ EXTREME ({extreme.length}) — Contrarian setups</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:10}}>
+            {extreme.map((d,i) => {
+              const idx = d.index as number;
+              const col = mc(idx);
+              const bg  = idx>=80?"rgba(239,68,68,0.07)":"rgba(16,185,129,0.07)";
+              const bdr = idx>=80?"rgba(239,68,68,0.22)":"rgba(16,185,129,0.22)";
               return (
-                <div key={i} style={{ background: bg, border: `1px solid ${bor}`, borderRadius: 10, padding: "12px 14px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{NAME[d.symbol] || d.symbol}</span>
-                    <span style={{ fontSize: 10, color: CAT_COLOR[CAT[d.symbol] || ""] || "#64748b", fontWeight: 600 }}>
-                      {CAT[d.symbol] || ""}
-                    </span>
+                <div key={i} style={{background:bg,border:`1px solid ${bdr}`,borderRadius:10,padding:"12px 14px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <span style={{fontWeight:700,fontSize:14}}>{NAME[d.symbol]||d.symbol}</span>
+                    <span style={{fontSize:10,color:CAT_COLOR[CAT[d.symbol]||""]||"#64748b",fontWeight:600}}>{CAT[d.symbol]||""}</span>
                   </div>
-                  {/* Meter */}
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#475569", marginBottom: 3 }}>
-                      <span style={{ color: "#10b981" }}>◀ SHORT</span>
-                      <span style={{ color: mc, fontWeight: 700 }}>{d.bias} {idx}%</span>
-                      <span style={{ color: "#ef4444" }}>LONG ▶</span>
+                  <div style={{marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#475569",marginBottom:3}}>
+                      <span style={{color:"#10b981"}}>◀ SHORT</span>
+                      <span style={{color:col,fontWeight:700}}>{d.bias} {idx}%</span>
+                      <span style={{color:"#ef4444"}}>LONG ▶</span>
                     </div>
-                    <div style={{ height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 4, position: "relative", overflow: "hidden" }}>
-                      <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.35)" }} />
-                      <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.35)" }} />
-                      <div style={{ width: `${Math.min(100, Math.max(0, idx))}%`, height: "100%", background: mc, borderRadius: 4 }} />
+                    <div style={{height:8,background:"rgba(255,255,255,0.06)",borderRadius:4,overflow:"hidden",position:"relative"}}>
+                      <div style={{position:"absolute",left:"20%",top:0,bottom:0,width:1,background:"rgba(16,185,129,0.35)"}} />
+                      <div style={{position:"absolute",left:"80%",top:0,bottom:0,width:1,background:"rgba(239,68,68,0.35)"}} />
+                      <div style={{width:`${Math.min(100,Math.max(0,idx))}%`,height:"100%",background:col}} />
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#334155", marginTop: 2 }}>
-                      <span>0</span><span style={{ color: "#475569" }}>Extreme zones</span><span>100</span>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#334155",marginTop:2}}>
+                      <span>0</span><span>100</span>
                     </div>
                   </div>
-                  {net !== null && (
-                    <div style={{ fontSize: 10.5, color: "#64748b", marginBottom: 6 }}>
-                      Net position: <b style={{ color: "#cbd5e1" }}>{net > 0 ? "+" : ""}{net.toLocaleString()}</b> contracts
-                      {d.weeks ? ` · ${d.weeks}w data` : ""}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 11, color: mc, fontWeight: 600 }}>
-                    {idx <= 20
-                      ? "🟢 Contrarian LONG — extreme short crowding. Wait for price signal."
-                      : "🔴 Contrarian SHORT — extreme long crowding. Wait for price signal."}
-                  </div>
+                  {typeof d.net==="number" && <div style={{fontSize:10.5,color:"#64748b",marginBottom:5}}>Net: <b style={{color:"#cbd5e1"}}>{d.net>0?"+":""}{d.net.toLocaleString()}</b> contracts{d.weeks?` · ${d.weeks}w`:""}</div>}
+                  <div style={{fontSize:11,color:col,fontWeight:600}}>{idx<=20?"🟢 Contrarian LONG — extreme short crowding. Wait for price signal.":"🔴 Contrarian SHORT — extreme long crowding. Wait for price signal."}</div>
                 </div>
               );
             })}
           </div>
-        </>
-      )}
-
-      {/* Neutral */}
-      {neutral.length > 0 && (
-        <>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>
-            ○ NEUTRAL ({neutral.length})
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 8 }}>
-            {neutral.map((d, i) => {
-              const idx = d.index ?? 50;
-              const net = typeof d.net === "number" ? d.net : null;
-              return (
-                <div key={i} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(148,163,184,0.1)", borderRadius: 8, padding: "10px 12px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>{NAME[d.symbol] || d.symbol}</span>
-                    <span style={{ fontSize: 10, color: "#475569" }}>{idx}%</span>
-                  </div>
-                  <div style={{ height: 5, background: "rgba(255,255,255,0.05)", borderRadius: 3, position: "relative", overflow: "hidden" }}>
-                    <div style={{ position: "absolute", left: "20%", top: 0, bottom: 0, width: 1, background: "rgba(16,185,129,0.2)" }} />
-                    <div style={{ position: "absolute", left: "80%", top: 0, bottom: 0, width: 1, background: "rgba(239,68,68,0.2)" }} />
-                    <div style={{ width: `${Math.min(100, Math.max(0, idx))}%`, height: "100%", background: "#475569", borderRadius: 3 }} />
-                  </div>
-                  <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
-                    {idx <= 35 ? "Leaning SHORT" : idx >= 65 ? "Leaning LONG" : "Balanced"}
-                    {net !== null ? ` · ${net > 0 ? "+" : ""}${net.toLocaleString()}` : ""}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {failed.length > 0 && ran && (
-        <div style={{ marginTop: 12, fontSize: 11, color: "#475569" }}>
-          {failed.map((e, i) => <div key={i}>❌ {NAME[e.symbol] || e.symbol}: {e.error || "no data"}</div>)}
         </div>
       )}
+      {neutral.length > 0 && (
+        <div>
+          <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>○ NEUTRAL ({neutral.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+            {neutral.map((d,i) => {
+              const idx = d.index as number;
+              return (
+                <div key={i} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(148,163,184,0.1)",borderRadius:8,padding:"10px 12px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                    <span style={{fontWeight:600,fontSize:13}}>{NAME[d.symbol]||d.symbol}</span>
+                    <span style={{fontSize:10,color:"#475569"}}>{idx}%</span>
+                  </div>
+                  <div style={{height:5,background:"rgba(255,255,255,0.05)",borderRadius:3,overflow:"hidden",position:"relative"}}>
+                    <div style={{position:"absolute",left:"20%",top:0,bottom:0,width:1,background:"rgba(16,185,129,0.2)"}} />
+                    <div style={{position:"absolute",left:"80%",top:0,bottom:0,width:1,background:"rgba(239,68,68,0.2)"}} />
+                    <div style={{width:`${Math.min(100,Math.max(0,idx))}%`,height:"100%",background:"#475569"}} />
+                  </div>
+                  <div style={{fontSize:10,color:"#475569",marginTop:4}}>{idx<=35?"Leaning SHORT":idx>=65?"Leaning LONG":"Balanced"}{typeof d.net==="number"?` · ${d.net>0?"+":""}${d.net.toLocaleString()}`:""}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {failed.length>0&&ran&&<div style={{marginTop:12,fontSize:11,color:"#475569"}}>{failed.map((e,i)=><div key={i}>❌ {NAME[e.symbol]||e.symbol}: {e.error||"no data"}</div>)}</div>}
     </section>
   );
 }
 
-
 export default function App() {
-  const [tab, setTab] = useState<"screener" | "cot" | "journal">("screener");
+  const [tab, setTab]       = useState<"screener" | "cot" | "journal">("screener");
   const [selected, setSelected] = useState<string[]>(ASSETS.map(a => a.sym));
   const [showAssets, setShowAssets] = useState(false);
   const [d1, setD1]         = useState(todayMinus(1825));
@@ -352,7 +246,8 @@ export default function App() {
     setBusy(true); setRes([]); setRan(false);
     try {
       const symsParam = selected.join(",");
-      const r = await fetch(`/api/screener?symbols=${symsParam}&start=${d1}`);
+      const catParam  = selected.map(s => CAT[s] || "").join(",");
+      const r = await fetch(`/api/screener?symbols=${symsParam}&cat=${catParam}&start=${d1}`);
       const data = await r.json();
       setRes(Array.isArray(data) ? data : []);
       setRan(true);
@@ -632,10 +527,32 @@ export default function App() {
                           )}
                         </div>
                         {row.cot && (
-                          <>
-                            <CotMeter cot={row.cot} />
-                            <CotContext cot={row.cot} sigDir={sig.dir} />
-                          </>
+                          <div style={{
+                            marginTop: "8px",
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            lineHeight: "1.4",
+                            background: row.cot.contrarian === sig.dir 
+                              ? "rgba(34,197,94,0.08)" 
+                              : row.cot.bias === "neutral" 
+                                ? "rgba(148,163,184,0.04)" 
+                                : "rgba(239,68,68,0.08)",
+                            border: `1px solid ${
+                              row.cot.contrarian === sig.dir 
+                                ? "rgba(34,197,94,0.2)" 
+                                : row.cot.bias === "neutral" 
+                                  ? "rgba(148,163,184,0.15)" 
+                                  : "rgba(239,68,68,0.2)"
+                            }`,
+                            color: row.cot.contrarian === sig.dir 
+                              ? "#4ade80" 
+                              : row.cot.bias === "neutral" 
+                                ? "#94a3b8" 
+                                : "#f87171"
+                          }}>
+                            {getCotExplanation(row.cot, sig.dir)}
+                          </div>
                         )}
                         <button className="take-btn" onClick={() => takeTrade(row.symbol, sig)}>
                           ✋ Take this trade
@@ -645,9 +562,25 @@ export default function App() {
                       <div className="sc-nosig-container" style={{ padding: "4px 0" }}>
                         <div className="sc-nosig muted">No signal today</div>
                         {row.cot && (
-                          <div style={{ marginTop: 6 }}>
-                            <CotMeter cot={row.cot} />
-                            <CotContext cot={row.cot} />
+                          <div style={{ marginTop: "6px" }}>
+                            <div className="sc-cot-nosig" style={{ fontSize: "10px", color: "var(--text-3)", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <span>Positioning:</span>
+                              <span className={`cot-badge ${row.cot.bias === "neutral" ? "cot-neutral" : "cot-extreme"}`} style={{ margin: 0, padding: "1px 5px", fontSize: "9px" }}>
+                                {row.cot.bias} ({row.cot.index}%)
+                              </span>
+                            </div>
+                            <div style={{
+                              marginTop: "4px",
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              fontSize: "10.5px",
+                              lineHeight: "1.35",
+                              background: "rgba(148,163,184,0.04)",
+                              border: "1px solid rgba(148,163,184,0.1)",
+                              color: "#94a3b8"
+                            }}>
+                              {getCotExplanation(row.cot)}
+                            </div>
                           </div>
                         )}
                       </div>

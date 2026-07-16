@@ -421,6 +421,7 @@ export function fiveEmaFiltered(c: Candle[]): { long: boolean[]; short: boolean[
   const cl = c.map(x => x.close);
   const e5 = ema(cl, 5);
   const e50 = ema(cl, 50);
+  const e200 = ema(cl, 200);
   const a = atrOf(c);
   const n = c.length;
   const long = new Array(n).fill(false);
@@ -440,11 +441,14 @@ export function fiveEmaFiltered(c: Candle[]): { long: boolean[]; short: boolean[
     const slDist = ls ? (entry - ac.low) : (ac.high - entry);
     if (slDist <= 0 || slDist / entry > 0.15) continue;
 
-    // 3 filters
+    // 3 filters + extended-move filter
     const trendOk = (dir === 1 && cl[i] > e50[i]) || (dir === -1 && cl[i] < e50[i]);
     const bodyOk  = Math.abs(ac.close - ac.open) / (ac.high - ac.low) > 0.5;
     const atrOk   = a[i] / cl[i] * 100 > 1.0;
-    if (!trendOk || !bodyOk || !atrOk) continue;
+    // Extended-move filter: agar price EMA200 se 15%+ door hai to skip (move exhausted)
+    const distE200 = e200[i] > 0 ? Math.abs(cl[i] - e200[i]) / e200[i] * 100 : 0;
+    const notExtended = distE200 <= 15;
+    if (!trendOk || !bodyOk || !atrOk || !notExtended) continue;
 
     const stop   = ls ? ac.low  : ac.high;
     const target = ls ? entry + 5 * slDist : entry - 5 * slDist;
@@ -462,10 +466,18 @@ export function cryptoEMATrend(c: Candle[]): { long: boolean[]; short: boolean[]
   const cl = c.map(x => x.close);
   const f = ema(cl, 20);
   const s = ema(cl, 50);
+  const e200 = ema(cl, 200);
   const a = atrOf(c);
   const n = c.length;
-  const long  = f.map((_, i) => i > 0 && f[i] > s[i] && f[i-1] <= s[i-1]);
-  const short = f.map((_, i) => i > 0 && f[i] < s[i] && f[i-1] >= s[i-1]);
+  // Bull-regime filter: sirf jab EMA50 > EMA200 (uptrend market) tab trade
+  // Extended filter: EMA200 se 15%+ door skip
+  const okBar = (i: number) => {
+    const bull = s[i] > e200[i];
+    const distE200 = e200[i] > 0 ? Math.abs(cl[i] - e200[i]) / e200[i] * 100 : 0;
+    return bull && distE200 <= 15;
+  };
+  const long  = f.map((_, i) => i > 0 && f[i] > s[i] && f[i-1] <= s[i-1] && okBar(i));
+  const short = f.map((_, i) => i > 0 && f[i] < s[i] && f[i-1] >= s[i-1] && okBar(i));
   const last = n - 1;
   const live: "LONG" | "SHORT" | "-" = long[last] ? "LONG" : short[last] ? "SHORT" : "-";
   let entry = null, stop = null, target = null;

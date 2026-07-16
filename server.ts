@@ -327,6 +327,100 @@ app.get("/api/cot-all", async (req, res) => {
   res.json(out);
 });
 
+// ══════════════════════════════════════════════════════════
+//  /api/playback — Market replay
+//  Ek date range ke har din ke signals precompute karke bhejta hai
+//  Client day-by-day autoplay karta hai
+// ══════════════════════════════════════════════════════════
+app.get("/api/playback", async (req, res) => {
+  const syms = symbols(req);
+  const fromDate = String(req.query.from || "");   // playback start date YYYY-MM-DD
+  const daysAhead = Math.min(120, Math.max(5, Number(req.query.days) || 60));
+  const histStart = startSec("2021-01-01"); // strategies need long history
+
+  if (!fromDate) return res.json({ error: "from date required" });
+
+  try {
+    // Har asset ka full history load karo
+    const assetData: Record<string, Candle[]> = {};
+    for (const sym of syms) {
+      try {
+        const c = await getHistory(sym, histStart, "1d");
+        if (c.length >= 60) assetData[sym] = c;
+      } catch { /* skip */ }
+    }
+
+    // fromDate ka index nikaalo (koi bhi ek asset se — common timeline)
+    const anySym = Object.keys(assetData)[0];
+    if (!anySym) return res.json({ error: "no data" });
+
+    // Build timeline of trading days from fromDate onward
+    const refCandles = assetData[anySym];
+    const startIdx = refCandles.findIndex((c) => day(c.date) >= fromDate);
+    if (startIdx === -1) return res.json({ error: "date out of range" });
+
+    const frames: any[] = [];
+    const endIdx = Math.min(refCandles.length - 1, startIdx + daysAhead);
+
+    for (let di = startIdx; di <= endIdx; di++) {
+      const curDate = day(refCandles[di].date);
+      const dayFrame: any = { date: curDate, signals: [], ohlc: {} };
+
+      for (const sym of Object.keys(assetData)) {
+        const full = assetData[sym];
+        // us date tak ka data slice karo (as-of)
+        const upto = full.filter((c) => day(c.date) <= curDate);
+        if (upto.length < 60) continue;
+
+        const cat = ASSET_CAT[sym] || "";
+        const bar = upto[upto.length - 1];
+        // OHLC bhejo — client SL/TP resolve kar sake
+        dayFrame.ohlc[sym] = {
+          o: +bar.open.toFixed(5), h: +bar.high.toFixed(5),
+          l: +bar.low.toFixed(5), c: +bar.close.toFixed(5),
+        };
+
+        // 5-EMA Filtered (non-Forex)
+        if (cat !== "Forex") {
+          const { alertCandles } = fiveEmaFiltered(upto);
+          const latest = alertCandles[alertCandles.length - 1];
+          if (latest && latest.i >= upto.length - 2) {
+            dayFrame.signals.push({
+              symbol: sym, strategy: "5-EMA Filtered", dir: latest.dir,
+              entry: latest.entry, stop: latest.stop, target: latest.target, rr: "1:5",
+            });
+          }
+        }
+        // Crypto EMA
+        if (cat === "Crypto") {
+          const r = cryptoEMATrend(upto);
+          if (r.live !== "-") {
+            dayFrame.signals.push({
+              symbol: sym, strategy: "Crypto EMA 20/50", dir: r.live,
+              entry: r.entry, stop: r.stop, target: r.target, rr: "1:3",
+            });
+          }
+        }
+        // Forex RSI
+        if (cat === "Forex") {
+          const r = forexRSIMeanRev(upto);
+          if (r.live !== "-") {
+            dayFrame.signals.push({
+              symbol: sym, strategy: "Forex RSI 25/75", dir: r.live,
+              entry: r.entry, stop: r.stop, target: r.target, rr: "1:3", rsiVal: r.rsiVal,
+            });
+          }
+        }
+      }
+      frames.push(dayFrame);
+    }
+
+    res.json({ from: fromDate, frames });
+  } catch (e: any) {
+    res.json({ error: e?.message || "playback failed" });
+  }
+});
+
 // ── Boot ──
 async function start() {
   if (!isProd) {

@@ -116,6 +116,256 @@ const getCotExplanation = (cot: any, sigDir?: string) => {
   return `ℹ️ Neutral range (${idx}%): Bade players normal bounds me hain. Koi extreme crowd ya squeeze risk nahi hai. Market standard direction me safely move hoga, force mat karo.`;
 };
 
+// ══════════════════════════════════════════════
+//  PLAYBACK — Market replay day-by-day
+// ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  PLAYBACK — Market replay + paper trades
+// ══════════════════════════════════════════════
+type PaperTrade = {
+  id: string; symbol: string; strategy: string; dir: "LONG" | "SHORT";
+  signalDate: string; entryDate: string | null; entryPrice: number | null;
+  stop: number; target: number;
+  status: "PENDING" | "OPEN" | "SL_HIT" | "TARGET_HIT";
+  exitDate?: string; exitPrice?: number; returnPct?: number;
+};
+
+function Playback() {
+  const ASSETS_LIST = Object.keys(CAT);
+  const [fromDate, setFromDate] = useState("2024-01-01");
+  const [frames, setFrames] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [ran, setRan] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1000);
+  const [err, setErr] = useState("");
+  const [paper, setPaper] = useState<PaperTrade[]>([]);
+  const timerRef = useRef<any>(null);
+
+  async function loadPlayback() {
+    setBusy(true); setFrames([]); setRan(false); setErr(""); setCur(0);
+    setPlaying(false); setPaper([]);
+    try {
+      const r = await fetch(`/api/playback?symbols=${ASSETS_LIST.join(",")}&from=${fromDate}&days=90`);
+      const d = await r.json();
+      if (d.error) setErr(d.error);
+      else { setFrames(Array.isArray(d.frames) ? d.frames : []); setRan(true); }
+    } catch { setErr("Load failed"); }
+    setBusy(false);
+  }
+
+  // Autoplay
+  useEffect(() => {
+    if (playing && frames.length > 0) {
+      timerRef.current = setTimeout(() => {
+        setCur(c => { if (c >= frames.length - 1) { setPlaying(false); return c; } return c + 1; });
+      }, speed);
+    }
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [playing, cur, frames, speed]);
+
+  // Resolve paper trades up to current frame
+  useEffect(() => {
+    if (!frames.length || !paper.length) return;
+    setPaper(prev => prev.map(t => {
+      if (t.status === "SL_HIT" || t.status === "TARGET_HIT") return t;
+      const dir = t.dir === "SHORT" ? -1 : 1;
+      const sigIdx = frames.findIndex((f: any) => f.date === t.signalDate);
+      if (sigIdx === -1) return t;
+      let nt = { ...t };
+      // Entry = next day's open after signal
+      if (nt.status === "PENDING") {
+        const entryFrame = frames[sigIdx + 1];
+        if (!entryFrame || sigIdx + 1 > cur) return nt; // entry day not reached yet
+        const bar = entryFrame.ohlc?.[t.symbol];
+        if (!bar) return nt;
+        nt.entryDate = entryFrame.date;
+        nt.entryPrice = bar.o;
+        nt.status = "OPEN";
+      }
+      // Walk from entry to current frame, check SL/TP
+      if (nt.status === "OPEN" && nt.entryDate && nt.entryPrice != null) {
+        const startI = frames.findIndex((f: any) => f.date === nt.entryDate);
+        for (let j = startI; j <= cur && j < frames.length; j++) {
+          const bar = frames[j].ohlc?.[t.symbol];
+          if (!bar) continue;
+          const isEntry = j === startI;
+          if (dir === 1) {
+            if (!isEntry && bar.o <= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
+            if (!isEntry && bar.o >= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
+            if (bar.l <= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = t.stop; nt.exitDate = frames[j].date; break; }
+            if (bar.h >= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = t.target; nt.exitDate = frames[j].date; break; }
+          } else {
+            if (!isEntry && bar.o >= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
+            if (!isEntry && bar.o <= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
+            if (bar.h >= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = t.stop; nt.exitDate = frames[j].date; break; }
+            if (bar.l <= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = t.target; nt.exitDate = frames[j].date; break; }
+          }
+        }
+        if ((nt.status === "SL_HIT" || nt.status === "TARGET_HIT") && nt.exitPrice != null && nt.entryPrice != null) {
+          nt.returnPct = +((dir === 1 ? (nt.exitPrice - nt.entryPrice) / nt.entryPrice : (nt.entryPrice - nt.exitPrice) / nt.entryPrice) * 100).toFixed(2);
+        }
+      }
+      return nt;
+    }));
+  }, [cur, frames]);
+
+  function takePaper(sig: any, date: string) {
+    setPaper(prev => {
+      if (prev.some(t => t.symbol === sig.symbol && t.signalDate === date && t.strategy === sig.strategy)) return prev;
+      return [...prev, {
+        id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+        symbol: sig.symbol, strategy: sig.strategy, dir: sig.dir,
+        signalDate: date, entryDate: null, entryPrice: null,
+        stop: sig.stop, target: sig.target, status: "PENDING",
+      }];
+    });
+  }
+
+  const frame = frames[cur] || null;
+  const sigs = frame?.signals || [];
+
+  // Paper stats
+  const closed = paper.filter(t => t.status === "SL_HIT" || t.status === "TARGET_HIT");
+  const wins = closed.filter(t => t.status === "TARGET_HIT").length;
+  const totalRet = closed.reduce((a, t) => a + (t.returnPct || 0), 0);
+  const winRate = closed.length ? (wins / closed.length * 100).toFixed(0) : "—";
+
+  return (
+    <section className="panel main-panel">
+      {/* Controls */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <label className="ctl">Start from date
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} max={todayMinus(2)} min="2021-02-01" />
+          </label>
+          <button className={`run-btn ${busy ? "loading" : ""}`} onClick={loadPlayback} disabled={busy} style={{ minWidth: 160 }}>
+            {busy ? "⏳ Loading…" : "🎬 Load Replay"}
+          </button>
+          {ran && <span style={{ fontSize: 11, color: "#64748b" }}>{frames.length} trading days · take trades & watch results</span>}
+        </div>
+        {err && <div style={{ marginTop: 8, fontSize: 12, color: "#f87171" }}>⚠️ {err}</div>}
+      </div>
+
+      {!ran && !busy && (
+        <div className="empty">
+          <b>🎬 Load Replay</b> dabao — past date se strategy day-by-day chalao.<br />
+          <span className="muted" style={{ fontSize: 12 }}>Take this trade dabao → aage badho → dekho SL laga ya TP</span>
+        </div>
+      )}
+
+      {ran && frame && (
+        <>
+          {/* Playback bar */}
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+              <span style={{ fontSize: 18, fontWeight: 700, fontFamily: "var(--mono)", color: "#fbbf24" }}>📅 {frame.date}</span>
+              <span style={{ fontSize: 12, color: "#64748b" }}>Day {cur + 1} / {frames.length} · {sigs.length} signal{sigs.length !== 1 ? "s" : ""}</span>
+            </div>
+            <div style={{ height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 3, marginBottom: 12, cursor: "pointer", position: "relative" }}
+              onClick={(e) => {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const pct = (e.clientX - rect.left) / rect.width;
+                setCur(Math.min(frames.length - 1, Math.max(0, Math.floor(pct * frames.length))));
+                setPlaying(false);
+              }}>
+              <div style={{ width: `${((cur + 1) / frames.length) * 100}%`, height: "100%", background: "#fbbf24", borderRadius: 3, transition: "width .2s" }} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <button className="pb-btn" onClick={() => { setCur(0); setPlaying(false); }}>⏮</button>
+              <button className="pb-btn" onClick={() => { setCur(c => Math.max(0, c - 1)); setPlaying(false); }}>◀</button>
+              <button className="pb-btn pb-play" onClick={() => setPlaying(p => !p)}>{playing ? "⏸ Pause" : "▶ Play"}</button>
+              <button className="pb-btn" onClick={() => { setCur(c => Math.min(frames.length - 1, c + 1)); setPlaying(false); }}>▶</button>
+              <button className="pb-btn" onClick={() => { setCur(frames.length - 1); setPlaying(false); }}>⏭</button>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "#64748b" }}>Speed:</span>
+                {[{ label: "0.5x", ms: 2000 }, { label: "1x", ms: 1000 }, { label: "2x", ms: 500 }, { label: "4x", ms: 250 }].map(s => (
+                  <button key={s.label} className={`pb-speed ${speed === s.ms ? "active" : ""}`} onClick={() => setSpeed(s.ms)}>{s.label}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Paper trade stats */}
+          {paper.length > 0 && (
+            <div style={{ display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap", fontSize: 12, padding: "10px 14px", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)", borderRadius: 8 }}>
+              <span style={{ color: "#fbbf24", fontWeight: 700 }}>📝 Paper Trades: {paper.length}</span>
+              <span style={{ color: "#64748b" }}>Open: {paper.filter(t => t.status === "OPEN" || t.status === "PENDING").length}</span>
+              <span style={{ color: "#10b981" }}>TP hit: {wins}</span>
+              <span style={{ color: "#ef4444" }}>SL hit: {closed.length - wins}</span>
+              <span style={{ color: "#64748b" }}>Win rate: {winRate}%</span>
+              <span style={{ color: totalRet >= 0 ? "#10b981" : "#ef4444", fontWeight: 700, marginLeft: "auto" }}>
+                Total: {totalRet >= 0 ? "+" : ""}{totalRet.toFixed(1)}%
+              </span>
+            </div>
+          )}
+
+          {/* Paper trades list */}
+          {paper.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {paper.slice().reverse().map(t => {
+                const stColor = t.status === "TARGET_HIT" ? "#10b981" : t.status === "SL_HIT" ? "#ef4444" : "#fbbf24";
+                const stLabel = t.status === "TARGET_HIT" ? "✅ TP HIT" : t.status === "SL_HIT" ? "❌ SL HIT" : t.status === "OPEN" ? "⏳ OPEN" : "⏸ PENDING";
+                return (
+                  <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 600, minWidth: 90 }}>{NAME[t.symbol] || t.symbol}</span>
+                    <span className={`pill ${t.dir}`} style={{ fontSize: 10 }}>{t.dir}</span>
+                    <span style={{ color: "#64748b", fontSize: 11 }}>{t.strategy}</span>
+                    <span style={{ color: "#475569", fontSize: 11 }}>@ {t.signalDate}</span>
+                    {t.entryPrice != null && <span style={{ color: "#64748b", fontSize: 11 }}>entry {price(t.entryPrice)}</span>}
+                    <span style={{ color: stColor, fontWeight: 700, marginLeft: "auto" }}>{stLabel}</span>
+                    {t.returnPct != null && <span style={{ color: stColor, fontWeight: 700, minWidth: 55, textAlign: "right" }}>{t.returnPct >= 0 ? "+" : ""}{t.returnPct}%</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Signals this day */}
+          {sigs.length === 0 ? (
+            <div className="banner">
+              Is din ({frame.date}) koi signal nahi.<br />
+              <span className="muted" style={{ fontSize: 12 }}>▶ Play dabao — jis din signal aaya wahan dikhega.</span>
+            </div>
+          ) : (
+            <div className="signal-grid">
+              {sigs.map((sig: any, i: number) => {
+                const alreadyTaken = paper.some(t => t.symbol === sig.symbol && t.signalDate === frame.date && t.strategy === sig.strategy);
+                return (
+                  <div key={i} className="signal-card has-signal">
+                    <div className="sc-header">
+                      <span className="sc-name">{NAME[sig.symbol] || sig.symbol}</span>
+                      <span className="sc-cat" style={{ color: CAT_COLOR[CAT[sig.symbol]] }}>{CAT[sig.symbol]}</span>
+                    </div>
+                    <div className="sc-signal" style={{ borderLeft: `2px solid ${STRAT_COLOR[sig.strategy] || "#60a5fa"}` }}>
+                      <div className="sc-sig-top">
+                        <span className="sc-strat" style={{ color: STRAT_COLOR[sig.strategy] }}>{sig.strategy}</span>
+                        <span className={`pill ${sig.dir}`}>{sig.dir}</span>
+                      </div>
+                      <div className="sc-levels">
+                        <span className="sc-entry">Entry <b>{price(sig.entry)}</b></span>
+                        <span className="sc-stop">SL <b style={{ color: "#ef4444" }}>{price(sig.stop)}</b></span>
+                        <span className="sc-target">TP <b style={{ color: "#10b981" }}>{price(sig.target)}</b></span>
+                        <span className="sc-rr muted">RR {sig.rr}</span>
+                      </div>
+                      {sig.rsiVal && <div className="sc-note muted">RSI {sig.rsiVal}</div>}
+                      <button className="take-btn" disabled={alreadyTaken} onClick={() => takePaper(sig, frame.date)}
+                        style={alreadyTaken ? { opacity: 0.5, cursor: "default" } : {}}>
+                        {alreadyTaken ? "✓ Taken" : "✋ Take this trade (paper)"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function CotDashboard() {
   const [cotData, setCotData] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
@@ -219,7 +469,7 @@ function CotDashboard() {
 }
 
 export default function App() {
-  const [tab, setTab]       = useState<"screener" | "cot" | "journal">("screener");
+  const [tab, setTab]       = useState<"screener" | "playback" | "cot" | "journal">("screener");
   const [selected, setSelected] = useState<string[]>(ASSETS.map(a => a.sym));
   const [showAssets, setShowAssets] = useState(false);
   const [d1, setD1]         = useState(todayMinus(1825));
@@ -321,6 +571,9 @@ export default function App() {
         <button className={`tab-btn ${tab === "screener" ? "active" : ""}`} onClick={() => setTab("screener")}>
           📊 Strategy Screener
         </button>
+        <button className={`tab-btn ${tab === "playback" ? "active" : ""}`} onClick={() => setTab("playback")}>
+          🎬 Playback
+        </button>
         <button className={`tab-btn ${tab === "cot" ? "active" : ""}`} onClick={() => setTab("cot")}>
           📡 COT Positioning
         </button>
@@ -335,6 +588,8 @@ export default function App() {
         </section>
       ) : tab === "cot" ? (
         <CotDashboard />
+      ) : tab === "playback" ? (
+        <Playback />
       ) : (
         <>
           {/* ── Controls ── */}

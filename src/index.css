@@ -399,3 +399,12 @@ td.sym.clickable:hover { color: var(--gold); text-decoration: underline dotted; 
 .cot-conflict{ background:rgba(239,68,68,0.12);  color:#ef4444; border:1px solid rgba(239,68,68,0.25); }
 .cot-neutral { background:rgba(148,163,184,0.1); color:#8e9ba9; border:1px solid rgba(148,163,184,0.2); }
 .cot-extreme { background:rgba(251,191,36,0.12);  color:#fbbf24; border:1px solid rgba(251,191,36,0.25); }
+
+/* Playback controls */
+.pb-btn { padding:7px 14px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; cursor:pointer; transition:all .15s; }
+.pb-btn:hover { background:rgba(255,255,255,0.05); border-color:var(--accent); }
+.pb-play { background:rgba(251,191,36,0.15); border-color:rgba(251,191,36,0.4); color:#fbbf24; font-weight:600; min-width:90px; }
+.pb-play:hover { background:rgba(251,191,36,0.25); }
+.pb-speed { padding:4px 9px; background:transparent; border:1px solid var(--border); border-radius:5px; color:#64748b; font-size:11px; cursor:pointer; }
+.pb-speed.active { background:rgba(251,191,36,0.15); border-color:rgba(251,191,36,0.4); color:#fbbf24; font-weight:600; }
+.pb-speed:hover { color:var(--text); }

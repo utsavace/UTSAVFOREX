@@ -124,9 +124,9 @@ const getCotExplanation = (cot: any, sigDir?: string) => {
 // ══════════════════════════════════════════════
 type PaperTrade = {
   id: string; symbol: string; strategy: string; dir: "LONG" | "SHORT";
-  signalDate: string; entryDate: string | null; entryPrice: number | null;
+  signalDate: string; plannedEntry: number; entryDate: string | null; entryPrice: number | null;
   stop: number; target: number;
-  status: "PENDING" | "OPEN" | "SL_HIT" | "TARGET_HIT";
+  status: "PENDING" | "OPEN" | "SL_HIT" | "TARGET_HIT" | "SKIPPED";
   exitDate?: string; exitPrice?: number; returnPct?: number;
 };
 
@@ -169,37 +169,38 @@ function Playback() {
   useEffect(() => {
     if (!frames.length || !paper.length) return;
     setPaper(prev => prev.map(t => {
-      if (t.status === "SL_HIT" || t.status === "TARGET_HIT") return t;
+      if (t.status === "SL_HIT" || t.status === "TARGET_HIT" || t.status === "SKIPPED") return t;
       const dir = t.dir === "SHORT" ? -1 : 1;
       const sigIdx = frames.findIndex((f: any) => f.date === t.signalDate);
       if (sigIdx === -1) return t;
       let nt = { ...t };
-      // Entry = next day's open after signal
+
+      // Entry: day after signal. Entry price = signal's planned entry (trigger price).
       if (nt.status === "PENDING") {
         const entryFrame = frames[sigIdx + 1];
         if (!entryFrame || sigIdx + 1 > cur) return nt; // entry day not reached yet
         const bar = entryFrame.ohlc?.[t.symbol];
         if (!bar) return nt;
+        // GAP CHECK: agar entry din ka open already SL breach kar chuka → SKIP
+        // SHORT: open >= SL invalid | LONG: open <= SL invalid
+        if (dir === -1 && bar.o >= t.stop) { nt.status = "SKIPPED"; nt.entryDate = entryFrame.date; return nt; }
+        if (dir === 1  && bar.o <= t.stop) { nt.status = "SKIPPED"; nt.entryDate = entryFrame.date; return nt; }
         nt.entryDate = entryFrame.date;
-        nt.entryPrice = bar.o;
+        nt.entryPrice = t.plannedEntry; // signal ka trigger price — RR preserve
         nt.status = "OPEN";
       }
-      // Walk from entry to current frame, check SL/TP
+
+      // Walk entry→current, check SL/TP using high/low
       if (nt.status === "OPEN" && nt.entryDate && nt.entryPrice != null) {
         const startI = frames.findIndex((f: any) => f.date === nt.entryDate);
         for (let j = startI; j <= cur && j < frames.length; j++) {
           const bar = frames[j].ohlc?.[t.symbol];
           if (!bar) continue;
-          const isEntry = j === startI;
-          if (dir === 1) {
-            if (!isEntry && bar.o <= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
-            if (!isEntry && bar.o >= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
-            if (bar.l <= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = t.stop; nt.exitDate = frames[j].date; break; }
+          if (dir === 1) { // LONG: stop below, target above
+            if (bar.l <= t.stop)   { nt.status = "SL_HIT";     nt.exitPrice = t.stop;   nt.exitDate = frames[j].date; break; }
             if (bar.h >= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = t.target; nt.exitDate = frames[j].date; break; }
-          } else {
-            if (!isEntry && bar.o >= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
-            if (!isEntry && bar.o <= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = bar.o; nt.exitDate = frames[j].date; break; }
-            if (bar.h >= t.stop) { nt.status = "SL_HIT"; nt.exitPrice = t.stop; nt.exitDate = frames[j].date; break; }
+          } else {         // SHORT: stop above, target below
+            if (bar.h >= t.stop)   { nt.status = "SL_HIT";     nt.exitPrice = t.stop;   nt.exitDate = frames[j].date; break; }
             if (bar.l <= t.target) { nt.status = "TARGET_HIT"; nt.exitPrice = t.target; nt.exitDate = frames[j].date; break; }
           }
         }
@@ -217,7 +218,7 @@ function Playback() {
       return [...prev, {
         id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
         symbol: sig.symbol, strategy: sig.strategy, dir: sig.dir,
-        signalDate: date, entryDate: null, entryPrice: null,
+        signalDate: date, plannedEntry: sig.entry, entryDate: null, entryPrice: null,
         stop: sig.stop, target: sig.target, status: "PENDING",
       }];
     });
@@ -294,6 +295,7 @@ function Playback() {
               <span style={{ color: "#64748b" }}>Open: {paper.filter(t => t.status === "OPEN" || t.status === "PENDING").length}</span>
               <span style={{ color: "#10b981" }}>TP hit: {wins}</span>
               <span style={{ color: "#ef4444" }}>SL hit: {closed.length - wins}</span>
+              {paper.some(t => t.status === "SKIPPED") && <span style={{ color: "#64748b" }}>Skipped: {paper.filter(t => t.status === "SKIPPED").length}</span>}
               <span style={{ color: "#64748b" }}>Win rate: {winRate}%</span>
               <span style={{ color: totalRet >= 0 ? "#10b981" : "#ef4444", fontWeight: 700, marginLeft: "auto" }}>
                 Total: {totalRet >= 0 ? "+" : ""}{totalRet.toFixed(1)}%
@@ -305,8 +307,8 @@ function Playback() {
           {paper.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               {paper.slice().reverse().map(t => {
-                const stColor = t.status === "TARGET_HIT" ? "#10b981" : t.status === "SL_HIT" ? "#ef4444" : "#fbbf24";
-                const stLabel = t.status === "TARGET_HIT" ? "✅ TP HIT" : t.status === "SL_HIT" ? "❌ SL HIT" : t.status === "OPEN" ? "⏳ OPEN" : "⏸ PENDING";
+                const stColor = t.status === "TARGET_HIT" ? "#10b981" : t.status === "SL_HIT" ? "#ef4444" : t.status === "SKIPPED" ? "#64748b" : "#fbbf24";
+                const stLabel = t.status === "TARGET_HIT" ? "✅ TP HIT" : t.status === "SL_HIT" ? "❌ SL HIT" : t.status === "SKIPPED" ? "⊘ SKIPPED (gap)" : t.status === "OPEN" ? "⏳ OPEN" : "⏸ PENDING";
                 return (
                   <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 12, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 600, minWidth: 90 }}>{NAME[t.symbol] || t.symbol}</span>

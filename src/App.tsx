@@ -334,7 +334,7 @@ function Playback() {
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <label className="ctl">Start from date
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} min="2021-02-01" />
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} max={todayMinus(2)} min="2021-02-01" />
           </label>
           <button className={`run-btn ${busy ? "loading" : ""}`} onClick={loadPlayback} disabled={busy} style={{ minWidth: 160 }}>
             {busy ? "⏳ Loading…" : "🎬 Load Replay"}
@@ -467,7 +467,9 @@ function CotDashboard() {
   const [cotData, setCotData] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [ran, setRan] = useState(false);
-  const COT_SYMS = ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X","GC=F","SI=F","CL=F","NG=F","BTC-USD","ETH-USD","^GSPC","^NDX","^RUT"];
+  const [activeGroup, setActiveGroup] = useState<"largSpec"|"commercials"|"smallSpec">("largSpec");
+  const COT_SYMS = ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X","GC=F","SI=F","CL=F","HG=F","PL=F","BTC-USD","ETH-USD","^GSPC","^NDX","^RUT"];
+
   async function load() {
     setBusy(true); setCotData([]); setRan(false);
     try {
@@ -477,33 +479,90 @@ function CotDashboard() {
     } catch { setCotData([]); }
     setBusy(false); setRan(true);
   }
+
   const mc = (i: number) => i >= 80 ? "#ef4444" : i <= 20 ? "#10b981" : "#94a3b8";
-  const ok = (d: any) => d && !d.error && typeof d.index === "number";
-  const extreme = [...cotData].filter(d => ok(d) && (d.index >= 80 || d.index <= 20)).sort((a,b) => (a.index<=20?a.index:200-a.index)-(b.index<=20?b.index:200-b.index));
-  const neutral = [...cotData].filter(d => ok(d) && d.index > 20 && d.index < 80).sort((a,b) => a.index-b.index);
+  const ok = (d: any) => d && !d.error && d[activeGroup] && typeof d[activeGroup].index === "number";
+
+  const getIdx = (d: any) => d[activeGroup]?.index ?? d.index ?? 50;
+  const getNet = (d: any) => d[activeGroup]?.net ?? d.net ?? 0;
+  const getBias = (d: any) => d[activeGroup]?.bias ?? d.bias ?? "neutral";
+  const getPct = (d: any) => d[activeGroup]?.pctLong ?? null;
+
+  const sortedData = [...cotData].filter(ok).sort((a,b) => {
+    const ai = getIdx(a), bi = getIdx(b);
+    const aScore = ai <= 20 ? ai : ai >= 80 ? 200 - ai : 100;
+    const bScore = bi <= 20 ? bi : bi >= 80 ? 200 - bi : 100;
+    return aScore - bScore;
+  });
+  const extreme = sortedData.filter(d => { const i = getIdx(d); return i >= 80 || i <= 20; });
+  const neutral = sortedData.filter(d => { const i = getIdx(d); return i > 20 && i < 80; });
   const failed  = cotData.filter(d => !ok(d));
+
+  const groupMeta = {
+    largSpec:    { label: "Large Speculators",  emoji: "🏦", desc: "Hedge funds & institutions — trend followers. Extreme = contrarian signal.", color: "#a78bfa" },
+    commercials: { label: "Commercials",         emoji: "🏭", desc: "Hedgers (farmers, oil cos, banks) — smart money. They hedge real business risk.", color: "#fbbf24" },
+    smallSpec:   { label: "Small Speculators",   emoji: "👤", desc: "Retail traders — usually wrong at extremes. Use as contrarian indicator.", color: "#60a5fa" },
+  };
+
+  const gm = groupMeta[activeGroup];
+
   return (
     <section className="panel main-panel">
-      <div style={{marginBottom:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      {/* Header */}
+      <div style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:12}}>
           <button className={`run-btn ${busy?"loading":""}`} onClick={load} disabled={busy} style={{minWidth:180}}>
             {busy ? "⏳ Fetching…" : "📡 Load COT Data"}
           </button>
           {ran && <span style={{fontSize:11,color:"#64748b"}}>CFTC · 52-week · Weekly Fri update</span>}
         </div>
-        <div style={{display:"flex",gap:16,marginTop:10,flexWrap:"wrap",fontSize:11}}>
-          <span style={{color:"#10b981"}}>■ 0–20% SHORT-crowded → contrarian LONG</span>
+
+        {/* Group Selector */}
+        {ran && (
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+            {(Object.entries(groupMeta) as [string, typeof gm][]).map(([key, meta]) => (
+              <button key={key}
+                onClick={() => setActiveGroup(key as any)}
+                style={{
+                  padding:"6px 14px", borderRadius:8, fontSize:12, cursor:"pointer",
+                  border:`1px solid ${activeGroup===key ? meta.color : "rgba(148,163,184,0.2)"}`,
+                  background: activeGroup===key ? `${meta.color}18` : "transparent",
+                  color: activeGroup===key ? meta.color : "#64748b",
+                  fontWeight: activeGroup===key ? 700 : 400,
+                  transition:"all 0.15s",
+                }}
+              >
+                {meta.emoji} {meta.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Group description */}
+        {ran && (
+          <div style={{fontSize:11,color:"#64748b",padding:"6px 10px",background:"rgba(255,255,255,0.02)",borderRadius:6,border:"1px solid rgba(148,163,184,0.08)",marginBottom:8}}>
+            <b style={{color:gm.color}}>{gm.emoji} {gm.label}:</b> {gm.desc}
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11}}>
+          <span style={{color:"#10b981"}}>■ 0–20% SHORT-crowded</span>
           <span style={{color:"#94a3b8"}}>■ 21–79% Neutral</span>
-          <span style={{color:"#ef4444"}}>■ 80–100% LONG-crowded → contrarian SHORT</span>
+          <span style={{color:"#ef4444"}}>■ 80–100% LONG-crowded</span>
         </div>
       </div>
-      {!ran && !busy && <div className="empty"><b>📡 Load COT Data</b> dabao</div>}
+
+      {!ran && !busy && <div className="empty"><b>📡 Load COT Data</b> dabao — teeno groups dekhne ke liye</div>}
+
+      {/* Extreme section */}
       {extreme.length > 0 && (
         <div style={{marginBottom:18}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#fbbf24",marginBottom:10}}>⚡ EXTREME ({extreme.length}) — Contrarian setups</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:10}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#fbbf24",marginBottom:10}}>⚡ EXTREME ({extreme.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
             {extreme.map((d,i) => {
-              const idx = d.index as number;
+              const idx = getIdx(d);
+              const net = getNet(d);
+              const pct = getPct(d);
               const col = mc(idx);
               const bg  = idx>=80?"rgba(239,68,68,0.07)":"rgba(16,185,129,0.07)";
               const bdr = idx>=80?"rgba(239,68,68,0.22)":"rgba(16,185,129,0.22)";
@@ -513,10 +572,11 @@ function CotDashboard() {
                     <span style={{fontWeight:700,fontSize:14}}>{NAME[d.symbol]||d.symbol}</span>
                     <span style={{fontSize:10,color:CAT_COLOR[CAT[d.symbol]||""]||"#64748b",fontWeight:600}}>{CAT[d.symbol]||""}</span>
                   </div>
+                  {/* Meter */}
                   <div style={{marginBottom:8}}>
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#475569",marginBottom:3}}>
                       <span style={{color:"#10b981"}}>◀ SHORT</span>
-                      <span style={{color:col,fontWeight:700}}>{d.bias} {idx}%</span>
+                      <span style={{color:col,fontWeight:700}}>{getBias(d)} {idx}%</span>
                       <span style={{color:"#ef4444"}}>LONG ▶</span>
                     </div>
                     <div style={{height:8,background:"rgba(255,255,255,0.06)",borderRadius:4,overflow:"hidden",position:"relative"}}>
@@ -524,24 +584,36 @@ function CotDashboard() {
                       <div style={{position:"absolute",left:"80%",top:0,bottom:0,width:1,background:"rgba(239,68,68,0.35)"}} />
                       <div style={{width:`${Math.min(100,Math.max(0,idx))}%`,height:"100%",background:col}} />
                     </div>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#334155",marginTop:2}}>
-                      <span>0</span><span>100</span>
-                    </div>
                   </div>
-                  {typeof d.net==="number" && <div style={{fontSize:10.5,color:"#64748b",marginBottom:5}}>Net: <b style={{color:"#cbd5e1"}}>{d.net>0?"+":""}{d.net.toLocaleString()}</b> contracts{d.weeks?` · ${d.weeks}w`:""}</div>}
-                  <div style={{fontSize:11,color:col,fontWeight:600}}>{getCotExplanation(d)}</div>
+                  {/* Stats */}
+                  <div style={{display:"flex",gap:12,fontSize:10.5,color:"#64748b",marginBottom:6,flexWrap:"wrap"}}>
+                    <span>Net: <b style={{color:"#cbd5e1"}}>{net>0?"+":""}{net.toLocaleString()}</b></span>
+                    {pct!==null && <span>%Long: <b style={{color:pct>50?"#22c55e":"#ef4444"}}>{pct}%</b></span>}
+                    {d.weeks && <span>{d.weeks}w data</span>}
+                  </div>
+                  {/* All 3 groups mini summary */}
+                  {d.largSpec && d.commercials && d.smallSpec && (
+                    <div style={{borderTop:"1px solid rgba(148,163,184,0.1)",paddingTop:6,marginTop:2,display:"flex",gap:8,fontSize:9.5,flexWrap:"wrap"}}>
+                      <span style={{color:"#a78bfa"}}>🏦 LSpec: {d.largSpec.index}%</span>
+                      <span style={{color:"#fbbf24"}}>🏭 Comm: {d.commercials.index}%</span>
+                      <span style={{color:"#60a5fa"}}>👤 Small: {d.smallSpec.index}%</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
       )}
+
+      {/* Neutral section */}
       {neutral.length > 0 && (
         <div>
           <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>○ NEUTRAL ({neutral.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
             {neutral.map((d,i) => {
-              const idx = d.index as number;
+              const idx = getIdx(d);
+              const net = getNet(d);
               return (
                 <div key={i} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(148,163,184,0.1)",borderRadius:8,padding:"10px 12px"}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
@@ -553,14 +625,22 @@ function CotDashboard() {
                     <div style={{position:"absolute",left:"80%",top:0,bottom:0,width:1,background:"rgba(239,68,68,0.2)"}} />
                     <div style={{width:`${Math.min(100,Math.max(0,idx))}%`,height:"100%",background:"#475569"}} />
                   </div>
-                  <div style={{fontSize:10,color:"#475569",marginTop:4}}>{idx<=35?"Leaning SHORT":idx>=65?"Leaning LONG":"Balanced"}{typeof d.net==="number"?` · ${d.net>0?"+":""}${d.net.toLocaleString()}`:""}</div>
-                  <div style={{fontSize:10.5,color:"#64748b",marginTop:6}}>{getCotExplanation(d)}</div>
+                  {/* Mini 3-group */}
+                  {d.largSpec && (
+                    <div style={{display:"flex",gap:6,fontSize:9,color:"#475569",marginTop:5,flexWrap:"wrap"}}>
+                      <span style={{color:"#a78bfa"}}>🏦{d.largSpec.index}%</span>
+                      <span style={{color:"#fbbf24"}}>🏭{d.commercials?.index}%</span>
+                      <span style={{color:"#60a5fa"}}>👤{d.smallSpec?.index}%</span>
+                      <span>Net:{net>0?"+":""}{net.toLocaleString()}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
       )}
+
       {failed.length>0&&ran&&<div style={{marginTop:12,fontSize:11,color:"#475569"}}>{failed.map((e,i)=><div key={i}>❌ {NAME[e.symbol]||e.symbol}: {e.error||"no data"}</div>)}</div>}
     </section>
   );

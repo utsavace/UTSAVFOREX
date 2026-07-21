@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
-import { fiveEmaFiltered, cryptoEMATrend, forexRSIMeanRev } from "./server/strategies";
+import { fiveEmaFiltered, cryptoEMATrend, forexRSIMeanRev, trendAnalysis, channelBreakout5520 } from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
@@ -45,19 +45,42 @@ async function getHistory(sym: string, startSec: number, interval = "1d"): Promi
 
 // ── Asset categories (server-side — query parsing pe depend nahi) ──
 const ASSET_CAT: Record<string, string> = {
-  "EURUSD=X": "Forex", "GBPUSD=X": "Forex", "USDJPY=X": "Forex", "USDCHF=X": "Forex",
-  "AUDUSD=X": "Forex", "USDCAD=X": "Forex", "NZDUSD=X": "Forex", "EURJPY=X": "Forex",
-  "GBPJPY=X": "Forex", "EURGBP=X": "Forex", "AUDJPY=X": "Forex",
-  "BTC-USD": "Crypto", "ETH-USD": "Crypto", "SOL-USD": "Crypto",
-  "XRP-USD": "Crypto", "BNB-USD": "Crypto", "DOGE-USD": "Crypto",
-  "GC=F": "Comm", "SI=F": "Comm", "CL=F": "Comm", "BZ=F": "Comm",
-  "HG=F": "Comm", "NG=F": "Comm", "PL=F": "Comm",
-  "AAPL": "Stock", "MSFT": "Stock", "NVDA": "Stock", "TSLA": "Stock",
-  "AMZN": "Stock", "GOOGL": "Stock", "META": "Stock", "NFLX": "Stock",
-  "AMD": "Stock", "AVGO": "Stock", "JPM": "Stock", "BAC": "Stock",
-  "V": "Stock", "MA": "Stock", "XOM": "Stock", "WMT": "Stock",
-  "DIS": "Stock", "BA": "Stock", "KO": "Stock", "PFE": "Stock", "INTC": "Stock",
-  "^GSPC": "Index", "^NDX": "Index", "^RUT": "Index",
+  // Forex (28)
+  "EURUSD=X":"Forex","GBPUSD=X":"Forex","USDJPY=X":"Forex","USDCHF=X":"Forex",
+  "AUDUSD=X":"Forex","USDCAD=X":"Forex","NZDUSD=X":"Forex","EURJPY=X":"Forex",
+  "GBPJPY=X":"Forex","EURGBP=X":"Forex","AUDJPY=X":"Forex","GBPCHF=X":"Forex",
+  "EURCHF=X":"Forex","GBPCAD=X":"Forex","GBPAUD=X":"Forex","GBPNZD=X":"Forex",
+  "EURCAD=X":"Forex","EURAUD=X":"Forex","EURNZD=X":"Forex","CADJPY=X":"Forex",
+  "AUDCAD=X":"Forex","AUDNZD=X":"Forex","AUDCHF=X":"Forex","NZDJPY=X":"Forex",
+  "NZDCAD=X":"Forex","CHFJPY=X":"Forex","CADCHF=X":"Forex","NZDCHF=X":"Forex",
+  // Crypto (10)
+  "BTC-USD":"Crypto","ETH-USD":"Crypto","SOL-USD":"Crypto","XRP-USD":"Crypto",
+  "BNB-USD":"Crypto","DOGE-USD":"Crypto","ADA-USD":"Crypto","LINK-USD":"Crypto",
+  "AVAX-USD":"Crypto","DOT-USD":"Crypto",
+  // Commodities (4)
+  "GC=F":"Comm","SI=F":"Comm","HG=F":"Comm","PL=F":"Comm",
+  // Nasdaq 100 Stocks (92)
+  "NVDA":"Stock","AAPL":"Stock","MSFT":"Stock","AMZN":"Stock","GOOGL":"Stock",
+  "GOOG":"Stock","AVGO":"Stock","META":"Stock","TSLA":"Stock","MU":"Stock",
+  "WMT":"Stock","AMD":"Stock","ASML":"Stock","INTC":"Stock","CSCO":"Stock",
+  "AMAT":"Stock","COST":"Stock","LRCX":"Stock","PLTR":"Stock","ARM":"Stock",
+  "NFLX":"Stock","PANW":"Stock","KLAC":"Stock","TXN":"Stock","LIN":"Stock",
+  "TMUS":"Stock","CRWD":"Stock","AMGN":"Stock","PEP":"Stock","STX":"Stock",
+  "ADI":"Stock","QCOM":"Stock","MRVL":"Stock","WDC":"Stock","GILD":"Stock",
+  "SHOP":"Stock","APP":"Stock","BKNG":"Stock","ISRG":"Stock","PDD":"Stock",
+  "VRTX":"Stock","SBUX":"Stock","FTNT":"Stock","ADP":"Stock","MAR":"Stock",
+  "DDOG":"Stock","MNST":"Stock","ADBE":"Stock","CSX":"Stock","MELI":"Stock",
+  "CDNS":"Stock","CEG":"Stock","ABNB":"Stock","CMCSA":"Stock","DASH":"Stock",
+  "CTAS":"Stock","INTU":"Stock","MDLZ":"Stock","ROST":"Stock","SNPS":"Stock",
+  "HON":"Stock","AEP":"Stock","REGN":"Stock","ORLY":"Stock","NXPI":"Stock",
+  "PCAR":"Stock","MPWR":"Stock","WBD":"Stock","FANG":"Stock","BKR":"Stock",
+  "EA":"Stock","TER":"Stock","FAST":"Stock","PYPL":"Stock","XEL":"Stock",
+  "ODFL":"Stock","EXC":"Stock","CCEP":"Stock","ADSK":"Stock","IDXX":"Stock",
+  "TTWO":"Stock","MCHP":"Stock","AXON":"Stock","KDP":"Stock","PAYX":"Stock",
+  "ROP":"Stock","ALNY":"Stock","WDAY":"Stock","KHC":"Stock","DXCM":"Stock",
+  "GEHC":"Stock","CPRT":"Stock",
+  // Indices (3)
+  "^GSPC":"Index","^NDX":"Index","^RUT":"Index",
 };
 
 // ── Helpers ──
@@ -107,8 +130,8 @@ app.get("/api/screener", async (req, res) => {
       const cat = ASSET_CAT[sym] || "";
       const row: any = { symbol: sym, signals: [] };
 
-      // ── Strategy 1: 5-EMA Filtered (Comm + Crypto + Stock) ──
-      if (cat !== "Forex") {
+      // ── Strategy 1: 5-EMA Filtered (Comm + Stock only — Crypto removed, overfitting risk) ──
+      if (cat === "Comm" || cat === "Stock" || cat === "Index") {
         const { alertCandles } = fiveEmaFiltered(c);
         const latest = alertCandles[alertCandles.length - 1];
         if (latest && latest.i >= c.length - 2) {
@@ -160,6 +183,46 @@ app.get("/api/screener", async (req, res) => {
             winRate: 60,
             rsiVal: r.rsiVal,
             note: `RSI ${r.rsiVal} crossed ${r.live === "LONG" ? "above 25" : "below 75"} · mean-reversion`,
+          });
+        }
+      }
+
+      // ── Strategy 4: Trend Analysis + Bishop Exit (Crypto only) ──
+      // Swing HH+HL → LONG | LL+LH → SHORT | Bishop exit (ADX>40 downtick)
+      // OOS PF 3.19 | 8/11 years | Best: XRP, DOGE, LINK, BTC, ADA
+      if (cat === "Crypto") {
+        const r = trendAnalysis(c);
+        if (r.live !== "-") {
+          row.signals.push({
+            strategy: "Trend Analysis",
+            dir: r.live,
+            entry: r.entry,
+            stop: r.stop,
+            target: r.target,
+            rr: "1:3 (trailing swing SL)",
+            oosPF: 3.19,
+            winRate: 30,
+            note: `Swing ${r.live === "LONG" ? "HH+HL breakout" : "LL+LH breakdown"} · Bishop ADX exit`,
+          });
+        }
+      }
+
+      // ── Strategy 5: Channel Breakout 55/20 (Crypto + Stock) ──
+      // 55-day breakout entry, 20-day exit (flat), rejection rule
+      // Crypto OOS PF 1.91 (9/10 yrs) | Stock OOS PF 1.25 (9/11 yrs)
+      if (cat === "Crypto" || cat === "Stock" || cat === "Index") {
+        const r = channelBreakout5520(c);
+        if (r.live !== "-") {
+          row.signals.push({
+            strategy: "Channel 55/20",
+            dir: r.live,
+            entry: r.entry,
+            stop: r.stop,
+            target: r.target,
+            rr: "Dynamic (55-day channel width)",
+            oosPF: cat === "Crypto" ? 1.91 : 1.25,
+            winRate: cat === "Crypto" ? 27 : 22,
+            note: `55-day ${r.live === "LONG" ? "high" : "low"} breakout · exit on 20-day breach · rejection rule`,
           });
         }
       }
@@ -380,8 +443,8 @@ app.get("/api/playback", async (req, res) => {
           l: +bar.low.toFixed(5), c: +bar.close.toFixed(5),
         };
 
-        // 5-EMA Filtered (non-Forex)
-        if (cat !== "Forex") {
+        // 5-EMA Filtered (Comm + Stock only — Crypto hataya, overfitting risk)
+        if (cat === "Comm" || cat === "Stock" || cat === "Index") {
           const { alertCandles } = fiveEmaFiltered(upto);
           const latest = alertCandles[alertCandles.length - 1];
           if (latest && latest.i >= upto.length - 2) {
@@ -408,6 +471,26 @@ app.get("/api/playback", async (req, res) => {
             dayFrame.signals.push({
               symbol: sym, strategy: "Forex RSI 25/75", dir: r.live,
               entry: r.entry, stop: r.stop, target: r.target, rr: "1:3", rsiVal: r.rsiVal,
+            });
+          }
+        }
+        // Trend Analysis (Crypto)
+        if (cat === "Crypto") {
+          const r = trendAnalysis(upto);
+          if (r.live !== "-") {
+            dayFrame.signals.push({
+              symbol: sym, strategy: "Trend Analysis", dir: r.live,
+              entry: r.entry, stop: r.stop, target: r.target, rr: "1:3",
+            });
+          }
+        }
+        // Channel 55/20 (Crypto + Stock)
+        if (cat === "Crypto" || cat === "Stock" || cat === "Index") {
+          const r = channelBreakout5520(upto);
+          if (r.live !== "-") {
+            dayFrame.signals.push({
+              symbol: sym, strategy: "Channel 55/20", dir: r.live,
+              entry: r.entry, stop: r.stop, target: r.target, rr: "Dynamic",
             });
           }
         }

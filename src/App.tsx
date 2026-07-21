@@ -7,60 +7,155 @@ import { MyTrades } from "./components/MyTrades";
 
 type Asset = { sym: string; name: string; cat: "Forex" | "Crypto" | "Comm" | "Stock" | "Index" };
 
+// ── WEAK ASSETS — backtested consistently losing (10yr OOS) ──
+// Forex: USDJPY (PF 0.72), AUDUSD (PF 0.34) — RSI25/75 nahi chalta
+// Stock: TSLA (PF 0.24), INTC (PF 0.00) — 5-EMA nahi chalta
+// Crypto: BTC-USD (PF 0.58 on CryptoEMA) — marginal only
+const WEAK_ASSETS = new Set(["USDJPY=X", "AUDUSD=X", "TSLA", "INTC"]);
+
 const ASSETS: Asset[] = [
-  // Forex (11) — RSI 25/75 mean-reversion
-  { sym: "EURUSD=X", name: "EUR/USD",   cat: "Forex" },
-  { sym: "GBPUSD=X", name: "GBP/USD",   cat: "Forex" },
-  { sym: "USDJPY=X", name: "USD/JPY",   cat: "Forex" },
-  { sym: "USDCHF=X", name: "USD/CHF",   cat: "Forex" },
-  { sym: "AUDUSD=X", name: "AUD/USD",   cat: "Forex" },
-  { sym: "USDCAD=X", name: "USD/CAD",   cat: "Forex" },
-  { sym: "NZDUSD=X", name: "NZD/USD",   cat: "Forex" },
-  { sym: "EURJPY=X", name: "EUR/JPY",   cat: "Forex" },
-  { sym: "GBPJPY=X", name: "GBP/JPY",   cat: "Forex" },
-  { sym: "EURGBP=X", name: "EUR/GBP",   cat: "Forex" },
-  { sym: "AUDJPY=X", name: "AUD/JPY",   cat: "Forex" },
-  // Crypto (6) — EMA 20/50 trend + 5-EMA
-  { sym: "BTC-USD",  name: "Bitcoin",   cat: "Crypto" },
-  { sym: "ETH-USD",  name: "Ethereum",  cat: "Crypto" },
-  { sym: "SOL-USD",  name: "Solana",    cat: "Crypto" },
-  { sym: "XRP-USD",  name: "XRP",       cat: "Crypto" },
-  { sym: "BNB-USD",  name: "BNB",       cat: "Crypto" },
-  { sym: "DOGE-USD", name: "Dogecoin",  cat: "Crypto" },
-  // Commodities (7) — 5-EMA (OOS PF 3.76!)
-  { sym: "GC=F",  name: "Gold",         cat: "Comm" },
-  { sym: "SI=F",  name: "Silver",       cat: "Comm" },
-  { sym: "CL=F",  name: "WTI Oil",      cat: "Comm" },
-  { sym: "BZ=F",  name: "Brent Oil",    cat: "Comm" },
-  { sym: "HG=F",  name: "Copper",       cat: "Comm" },
-  { sym: "NG=F",  name: "Nat Gas",      cat: "Comm" },
-  { sym: "PL=F",  name: "Platinum",     cat: "Comm" },
-  // US Stocks (21) — 5-EMA
-  { sym: "AAPL",  name: "Apple",        cat: "Stock" },
-  { sym: "MSFT",  name: "Microsoft",    cat: "Stock" },
-  { sym: "NVDA",  name: "NVIDIA",       cat: "Stock" },
-  { sym: "TSLA",  name: "Tesla",        cat: "Stock" },
-  { sym: "AMZN",  name: "Amazon",       cat: "Stock" },
-  { sym: "GOOGL", name: "Alphabet",     cat: "Stock" },
-  { sym: "META",  name: "Meta",         cat: "Stock" },
-  { sym: "NFLX",  name: "Netflix",      cat: "Stock" },
-  { sym: "AMD",   name: "AMD",          cat: "Stock" },
-  { sym: "AVGO",  name: "Broadcom",     cat: "Stock" },
-  { sym: "JPM",   name: "JPMorgan",     cat: "Stock" },
-  { sym: "BAC",   name: "BofA",         cat: "Stock" },
-  { sym: "V",     name: "Visa",         cat: "Stock" },
-  { sym: "MA",    name: "Mastercard",   cat: "Stock" },
-  { sym: "XOM",   name: "Exxon",        cat: "Stock" },
-  { sym: "WMT",   name: "Walmart",      cat: "Stock" },
-  { sym: "DIS",   name: "Disney",       cat: "Stock" },
-  { sym: "BA",    name: "Boeing",       cat: "Stock" },
-  { sym: "KO",    name: "Coca-Cola",    cat: "Stock" },
-  { sym: "PFE",   name: "Pfizer",       cat: "Stock" },
-  { sym: "INTC",  name: "Intel",        cat: "Stock" },
-  // Indices (3)
-  { sym: "^GSPC", name: "S&P 500",      cat: "Index" },
-  { sym: "^NDX",  name: "Nasdaq 100",   cat: "Index" },
-  { sym: "^RUT",  name: "Russell 2000", cat: "Index" },
+// ── Forex Pairs (28) — RSI 25/75 ──
+  { sym: "EURUSD=X", name: "EUR/USD", cat: "Forex" },
+  { sym: "GBPUSD=X", name: "GBP/USD", cat: "Forex" },
+  { sym: "USDJPY=X", name: "USD/JPY ⚠️", cat: "Forex" },
+  { sym: "USDCHF=X", name: "USD/CHF", cat: "Forex" },
+  { sym: "AUDUSD=X", name: "AUD/USD ⚠️", cat: "Forex" },
+  { sym: "USDCAD=X", name: "USD/CAD", cat: "Forex" },
+  { sym: "NZDUSD=X", name: "NZD/USD", cat: "Forex" },
+  { sym: "EURJPY=X", name: "EUR/JPY", cat: "Forex" },
+  { sym: "GBPJPY=X", name: "GBP/JPY", cat: "Forex" },
+  { sym: "EURGBP=X", name: "EUR/GBP", cat: "Forex" },
+  { sym: "AUDJPY=X", name: "AUD/JPY", cat: "Forex" },
+  { sym: "GBPCHF=X", name: "GBP/CHF", cat: "Forex" },
+  { sym: "EURCHF=X", name: "EUR/CHF", cat: "Forex" },
+  { sym: "GBPCAD=X", name: "GBP/CAD", cat: "Forex" },
+  { sym: "GBPAUD=X", name: "GBP/AUD", cat: "Forex" },
+  { sym: "GBPNZD=X", name: "GBP/NZD", cat: "Forex" },
+  { sym: "EURCAD=X", name: "EUR/CAD", cat: "Forex" },
+  { sym: "EURAUD=X", name: "EUR/AUD", cat: "Forex" },
+  { sym: "EURNZD=X", name: "EUR/NZD", cat: "Forex" },
+  { sym: "CADJPY=X", name: "CAD/JPY", cat: "Forex" },
+  { sym: "AUDCAD=X", name: "AUD/CAD", cat: "Forex" },
+  { sym: "AUDNZD=X", name: "AUD/NZD", cat: "Forex" },
+  { sym: "AUDCHF=X", name: "AUD/CHF", cat: "Forex" },
+  { sym: "NZDJPY=X", name: "NZD/JPY", cat: "Forex" },
+  { sym: "NZDCAD=X", name: "NZD/CAD", cat: "Forex" },
+  { sym: "CHFJPY=X", name: "CHF/JPY", cat: "Forex" },
+  { sym: "CADCHF=X", name: "CAD/CHF", cat: "Forex" },
+  { sym: "NZDCHF=X", name: "NZD/CHF", cat: "Forex" },
+  // ── Crypto (10) — Trend Analysis + Channel 55/20 ──
+  { sym: "BTC-USD", name: "Bitcoin", cat: "Crypto" },
+  { sym: "ETH-USD", name: "Ethereum", cat: "Crypto" },
+  { sym: "SOL-USD", name: "Solana", cat: "Crypto" },
+  { sym: "XRP-USD", name: "XRP", cat: "Crypto" },
+  { sym: "BNB-USD", name: "BNB", cat: "Crypto" },
+  { sym: "DOGE-USD", name: "Dogecoin", cat: "Crypto" },
+  { sym: "ADA-USD", name: "Cardano", cat: "Crypto" },
+  { sym: "LINK-USD", name: "Chainlink", cat: "Crypto" },
+  { sym: "AVAX-USD", name: "Avalanche", cat: "Crypto" },
+  { sym: "DOT-USD", name: "Polkadot", cat: "Crypto" },
+  // ── Commodities (4) — 5-EMA (Silver+Copper best) ──
+  { sym: "GC=F", name: "Gold", cat: "Comm" },
+  { sym: "SI=F", name: "Silver ⭐", cat: "Comm" },
+  { sym: "HG=F", name: "Copper ⭐", cat: "Comm" },
+  { sym: "PL=F", name: "Platinum", cat: "Comm" },
+  // ── Nasdaq 100 (92 stocks) — Channel 55/20 + 5-EMA ──
+  { sym: "NVDA", name: "Nvidia", cat: "Stock" },
+  { sym: "AAPL", name: "Apple", cat: "Stock" },
+  { sym: "MSFT", name: "Microsoft", cat: "Stock" },
+  { sym: "AMZN", name: "Amazon", cat: "Stock" },
+  { sym: "GOOGL", name: "Alphabet A", cat: "Stock" },
+  { sym: "GOOG", name: "Alphabet C", cat: "Stock" },
+  { sym: "AVGO", name: "Broadcom", cat: "Stock" },
+  { sym: "META", name: "Meta", cat: "Stock" },
+  { sym: "TSLA", name: "Tesla", cat: "Stock" },
+  { sym: "MU", name: "Micron", cat: "Stock" },
+  { sym: "WMT", name: "Walmart", cat: "Stock" },
+  { sym: "AMD", name: "AMD", cat: "Stock" },
+  { sym: "ASML", name: "ASML", cat: "Stock" },
+  { sym: "INTC", name: "Intel", cat: "Stock" },
+  { sym: "CSCO", name: "Cisco", cat: "Stock" },
+  { sym: "AMAT", name: "Applied Materials", cat: "Stock" },
+  { sym: "COST", name: "Costco", cat: "Stock" },
+  { sym: "LRCX", name: "Lam Research", cat: "Stock" },
+  { sym: "PLTR", name: "Palantir", cat: "Stock" },
+  { sym: "ARM", name: "ARM Holdings", cat: "Stock" },
+  { sym: "NFLX", name: "Netflix", cat: "Stock" },
+  { sym: "PANW", name: "Palo Alto", cat: "Stock" },
+  { sym: "KLAC", name: "KLA Corp", cat: "Stock" },
+  { sym: "TXN", name: "Texas Instruments", cat: "Stock" },
+  { sym: "LIN", name: "Linde", cat: "Stock" },
+  { sym: "TMUS", name: "T-Mobile", cat: "Stock" },
+  { sym: "CRWD", name: "CrowdStrike", cat: "Stock" },
+  { sym: "AMGN", name: "Amgen", cat: "Stock" },
+  { sym: "PEP", name: "PepsiCo", cat: "Stock" },
+  { sym: "STX", name: "Seagate", cat: "Stock" },
+  { sym: "ADI", name: "Analog Devices", cat: "Stock" },
+  { sym: "QCOM", name: "Qualcomm", cat: "Stock" },
+  { sym: "MRVL", name: "Marvell Tech", cat: "Stock" },
+  { sym: "WDC", name: "Western Digital", cat: "Stock" },
+  { sym: "GILD", name: "Gilead", cat: "Stock" },
+  { sym: "SHOP", name: "Shopify", cat: "Stock" },
+  { sym: "APP", name: "AppLovin", cat: "Stock" },
+  { sym: "BKNG", name: "Booking Holdings", cat: "Stock" },
+  { sym: "ISRG", name: "Intuitive Surgical", cat: "Stock" },
+  { sym: "PDD", name: "PDD Holdings", cat: "Stock" },
+  { sym: "VRTX", name: "Vertex Pharma", cat: "Stock" },
+  { sym: "SBUX", name: "Starbucks", cat: "Stock" },
+  { sym: "FTNT", name: "Fortinet", cat: "Stock" },
+  { sym: "ADP", name: "ADP", cat: "Stock" },
+  { sym: "MAR", name: "Marriott", cat: "Stock" },
+  { sym: "DDOG", name: "Datadog", cat: "Stock" },
+  { sym: "MNST", name: "Monster Beverage", cat: "Stock" },
+  { sym: "ADBE", name: "Adobe", cat: "Stock" },
+  { sym: "CSX", name: "CSX Corp", cat: "Stock" },
+  { sym: "MELI", name: "MercadoLibre", cat: "Stock" },
+  { sym: "CDNS", name: "Cadence Design", cat: "Stock" },
+  { sym: "CEG", name: "Constellation Energy", cat: "Stock" },
+  { sym: "ABNB", name: "Airbnb", cat: "Stock" },
+  { sym: "CMCSA", name: "Comcast", cat: "Stock" },
+  { sym: "DASH", name: "DoorDash", cat: "Stock" },
+  { sym: "CTAS", name: "Cintas", cat: "Stock" },
+  { sym: "INTU", name: "Intuit", cat: "Stock" },
+  { sym: "MDLZ", name: "Mondelez", cat: "Stock" },
+  { sym: "ROST", name: "Ross Stores", cat: "Stock" },
+  { sym: "SNPS", name: "Synopsys", cat: "Stock" },
+  { sym: "HON", name: "Honeywell", cat: "Stock" },
+  { sym: "AEP", name: "American Electric", cat: "Stock" },
+  { sym: "REGN", name: "Regeneron", cat: "Stock" },
+  { sym: "ORLY", name: "OReilly Auto", cat: "Stock" },
+  { sym: "NXPI", name: "NXP Semi", cat: "Stock" },
+  { sym: "PCAR", name: "Paccar", cat: "Stock" },
+  { sym: "MPWR", name: "Monolithic Power", cat: "Stock" },
+  { sym: "WBD", name: "Warner Bros Discovery", cat: "Stock" },
+  { sym: "FANG", name: "Diamondback Energy", cat: "Stock" },
+  { sym: "BKR", name: "Baker Hughes", cat: "Stock" },
+  { sym: "EA", name: "Electronic Arts", cat: "Stock" },
+  { sym: "TER", name: "Teradyne", cat: "Stock" },
+  { sym: "FAST", name: "Fastenal", cat: "Stock" },
+  { sym: "PYPL", name: "PayPal", cat: "Stock" },
+  { sym: "XEL", name: "Xcel Energy", cat: "Stock" },
+  { sym: "ODFL", name: "Old Dominion", cat: "Stock" },
+  { sym: "EXC", name: "Exelon", cat: "Stock" },
+  { sym: "CCEP", name: "Coca-Cola EP", cat: "Stock" },
+  { sym: "ADSK", name: "Autodesk", cat: "Stock" },
+  { sym: "IDXX", name: "IDEXX Labs", cat: "Stock" },
+  { sym: "TTWO", name: "Take-Two", cat: "Stock" },
+  { sym: "MCHP", name: "Microchip Tech", cat: "Stock" },
+  { sym: "AXON", name: "Axon Enterprise", cat: "Stock" },
+  { sym: "KDP", name: "Keurig Dr Pepper", cat: "Stock" },
+  { sym: "PAYX", name: "Paychex", cat: "Stock" },
+  { sym: "ROP", name: "Roper Tech", cat: "Stock" },
+  { sym: "ALNY", name: "Alnylam Pharma", cat: "Stock" },
+  { sym: "WDAY", name: "Workday", cat: "Stock" },
+  { sym: "KHC", name: "Kraft Heinz", cat: "Stock" },
+  { sym: "DXCM", name: "DexCom", cat: "Stock" },
+  { sym: "GEHC", name: "GE Healthcare", cat: "Stock" },
+  { sym: "CPRT", name: "Copart", cat: "Stock" },
+  // ── Indices (3) — Channel 55/20 ──
+  { sym: "^GSPC", name: "S&P 500", cat: "Index" },
+  { sym: "^NDX", name: "Nasdaq 100", cat: "Index" },
+  { sym: "^RUT", name: "Russell 2000", cat: "Index" },
 ];
 
 const NAME: Record<string, string> = Object.fromEntries(ASSETS.map(a => [a.sym, a.name]));
@@ -239,7 +334,7 @@ function Playback() {
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <label className="ctl">Start from date
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} max={todayMinus(2)} min="2021-02-01" />
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} min="2021-02-01" />
           </label>
           <button className={`run-btn ${busy ? "loading" : ""}`} onClick={loadPlayback} disabled={busy} style={{ minWidth: 160 }}>
             {busy ? "⏳ Loading…" : "🎬 Load Replay"}
@@ -434,7 +529,7 @@ function CotDashboard() {
                     </div>
                   </div>
                   {typeof d.net==="number" && <div style={{fontSize:10.5,color:"#64748b",marginBottom:5}}>Net: <b style={{color:"#cbd5e1"}}>{d.net>0?"+":""}{d.net.toLocaleString()}</b> contracts{d.weeks?` · ${d.weeks}w`:""}</div>}
-                  <div style={{fontSize:11,color:col,fontWeight:600}}>{idx<=20?"🟢 Contrarian LONG — extreme short crowding. Wait for price signal.":"🔴 Contrarian SHORT — extreme long crowding. Wait for price signal."}</div>
+                  <div style={{fontSize:11,color:col,fontWeight:600}}>{getCotExplanation(d)}</div>
                 </div>
               );
             })}
@@ -459,6 +554,7 @@ function CotDashboard() {
                     <div style={{width:`${Math.min(100,Math.max(0,idx))}%`,height:"100%",background:"#475569"}} />
                   </div>
                   <div style={{fontSize:10,color:"#475569",marginTop:4}}>{idx<=35?"Leaning SHORT":idx>=65?"Leaning LONG":"Balanced"}{typeof d.net==="number"?` · ${d.net>0?"+":""}${d.net.toLocaleString()}`:""}</div>
+                  <div style={{fontSize:10.5,color:"#64748b",marginTop:6}}>{getCotExplanation(d)}</div>
                 </div>
               );
             })}
@@ -562,8 +658,8 @@ export default function App() {
         </div>
         <div className="mast-actions">
           <div className="gatestamp">
-            <span className="gate-label">3 STRATEGIES</span>
-            <span className="gate-rules">5-EMA · Crypto EMA · Forex RSI · Daily only</span>
+            <span className="gate-label">4 STRATEGIES</span>
+            <span className="gate-rules">5-EMA · Forex RSI · Trend Analysis · Channel 55/20 · Daily</span>
           </div>
         </div>
       </header>
@@ -684,11 +780,12 @@ export default function App() {
             {/* Strategy legend */}
             <div className="strat-legend">
               {[
-                { name: "5-EMA Filtered",   oosPF: "1.98", win: "36%",  assets: "Comm + Crypto + Stock", rr: "1:5" },
-                { name: "Crypto EMA 20/50", oosPF: "1.86", win: "54%",  assets: "Crypto only",           rr: "1:3" },
-                { name: "Forex RSI 25/75",  oosPF: "1.85", win: "60%",  assets: "Forex only",            rr: "1:3" },
+                { name: "5-EMA Filtered",    oosPF: "1.92", win: "33%", assets: "Comm + Stock only",  rr: "1:5" },
+                { name: "Forex RSI 25/75",   oosPF: "1.34", win: "8%",  assets: "Forex (GBP/CHF/EUR)", rr: "1:3" },
+                { name: "Trend Analysis",    oosPF: "3.19", win: "30%", assets: "Crypto only",          rr: "1:3" },
+                { name: "Channel 55/20",     oosPF: "1.91", win: "27%", assets: "Crypto + Stock",       rr: "Dynamic" },
               ].map(s => (
-                <div key={s.name} className="strat-card" style={{ borderLeft: `3px solid ${STRAT_COLOR[s.name]}` }}>
+                <div key={s.name} className="strat-card" style={{ borderLeft: `3px solid ${STRAT_COLOR[s.name] || "#64748b"}` }}>
                   <span className="strat-name">{s.name}</span>
                   <span className="strat-stat">OOS PF <b>{s.oosPF}</b></span>
                   <span className="strat-stat">Win <b>{s.win}</b></span>

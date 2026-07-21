@@ -641,7 +641,22 @@ function CotDashboard() {
         </div>
       )}
 
-      {failed.length>0&&ran&&<div style={{marginTop:12,fontSize:11,color:"#475569"}}>{failed.map((e,i)=><div key={i}>❌ {NAME[e.symbol]||e.symbol}: {e.error||"no data"}</div>)}</div>}
+      {failed.length>0&&ran&&(
+        <div style={{marginTop:12}}>
+          <div style={{fontSize:11,color:"#475569",marginBottom:4}}>
+            ❌ {failed.length} assets ka COT data nahi mila:
+          </div>
+          {failed.slice(0,3).map((e,i)=>(
+            <div key={i} style={{fontSize:10.5,color:"#475569",fontFamily:"monospace"}}>
+              {NAME[e.symbol]||e.symbol}: {e.error||"no data"}
+            </div>
+          ))}
+          {failed.length>3 && <div style={{fontSize:10,color:"#374151"}}>...aur {failed.length-3} assets</div>}
+          <div style={{fontSize:10,color:"#374151",marginTop:4}}>
+            Note: CFTC COT data sirf futures markets ke liye available hai. Stocks ka data nahi hota.
+          </div>
+        </div>
+      )}
     </section>
   );
 }

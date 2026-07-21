@@ -530,7 +530,7 @@ function CotDashboard() {
             const strongSignal = com && ls &&
               ((com.index <= 20 && ls.index >= 80) || (com.index >= 80 && ls.index <= 20));
             const borderColor = strongSignal
-              ? (com.index <= 20 ? "#10b981" : "#ef4444")
+              ? (com.index >= 80 ? "#10b981" : "#ef4444")
               : "rgba(148,163,184,0.15)";
             return (
               <div key={i} style={{
@@ -587,13 +587,13 @@ function CotDashboard() {
                 {strongSignal && com && ls && (
                   <div style={{
                     marginTop:8,fontSize:10.5,padding:"4px 8px",borderRadius:5,
-                    background: com.index<=20?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
-                    color: com.index<=20?"#10b981":"#ef4444",
-                    border:`1px solid ${com.index<=20?"rgba(16,185,129,0.2)":"rgba(239,68,68,0.2)"}`,
+                    background: com.index>=80?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
+                    color: com.index>=80?"#10b981":"#ef4444",
+                    border:`1px solid ${com.index>=80?"rgba(16,185,129,0.2)":"rgba(239,68,68,0.2)"}`,
                   }}>
                     {com.index<=20
-                      ? "🟢 Commercials SHORT + Large Spec LONG → Reversal UP possible"
-                      : "🔴 Commercials LONG + Large Spec SHORT → Reversal DOWN possible"}
+                      ? "🔴 Commercials SHORT + Large Spec LONG → Reversal DOWN possible"
+                      : "🟢 Commercials LONG + Large Spec SHORT → Reversal UP possible"}
                   </div>
                 )}
 

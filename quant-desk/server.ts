@@ -45,20 +45,42 @@ async function getHistory(sym: string, startSec: number, interval = "1d"): Promi
 
 // ── Asset categories (server-side — query parsing pe depend nahi) ──
 const ASSET_CAT: Record<string, string> = {
-  "EURUSD=X": "Forex", "GBPUSD=X": "Forex", "USDJPY=X": "Forex", "USDCHF=X": "Forex",
-  "AUDUSD=X": "Forex", "USDCAD=X": "Forex", "NZDUSD=X": "Forex", "EURJPY=X": "Forex",
-  "GBPJPY=X": "Forex", "EURGBP=X": "Forex", "AUDJPY=X": "Forex",
-  "BTC-USD": "Crypto", "ETH-USD": "Crypto", "SOL-USD": "Crypto",
-  "XRP-USD": "Crypto", "BNB-USD": "Crypto", "DOGE-USD": "Crypto",
-  "ADA-USD": "Crypto", "LINK-USD": "Crypto",
-  "GC=F": "Comm", "SI=F": "Comm", "CL=F": "Comm", "BZ=F": "Comm",
-  "HG=F": "Comm", "NG=F": "Comm", "PL=F": "Comm",
-  "AAPL": "Stock", "MSFT": "Stock", "NVDA": "Stock", "TSLA": "Stock",
-  "AMZN": "Stock", "GOOGL": "Stock", "META": "Stock", "NFLX": "Stock",
-  "AMD": "Stock", "AVGO": "Stock", "JPM": "Stock", "BAC": "Stock",
-  "V": "Stock", "MA": "Stock", "XOM": "Stock", "WMT": "Stock",
-  "DIS": "Stock", "BA": "Stock", "KO": "Stock", "PFE": "Stock", "COST": "Stock",
-  "^GSPC": "Index", "^NDX": "Index", "^RUT": "Index",
+  // Forex (28)
+  "EURUSD=X":"Forex","GBPUSD=X":"Forex","USDJPY=X":"Forex","USDCHF=X":"Forex",
+  "AUDUSD=X":"Forex","USDCAD=X":"Forex","NZDUSD=X":"Forex","EURJPY=X":"Forex",
+  "GBPJPY=X":"Forex","EURGBP=X":"Forex","AUDJPY=X":"Forex","GBPCHF=X":"Forex",
+  "EURCHF=X":"Forex","GBPCAD=X":"Forex","GBPAUD=X":"Forex","GBPNZD=X":"Forex",
+  "EURCAD=X":"Forex","EURAUD=X":"Forex","EURNZD=X":"Forex","CADJPY=X":"Forex",
+  "AUDCAD=X":"Forex","AUDNZD=X":"Forex","AUDCHF=X":"Forex","NZDJPY=X":"Forex",
+  "NZDCAD=X":"Forex","CHFJPY=X":"Forex","CADCHF=X":"Forex","NZDCHF=X":"Forex",
+  // Crypto (10)
+  "BTC-USD":"Crypto","ETH-USD":"Crypto","SOL-USD":"Crypto","XRP-USD":"Crypto",
+  "BNB-USD":"Crypto","DOGE-USD":"Crypto","ADA-USD":"Crypto","LINK-USD":"Crypto",
+  "AVAX-USD":"Crypto","DOT-USD":"Crypto",
+  // Commodities (4)
+  "GC=F":"Comm","SI=F":"Comm","HG=F":"Comm","PL=F":"Comm",
+  // Nasdaq 100 Stocks (92)
+  "NVDA":"Stock","AAPL":"Stock","MSFT":"Stock","AMZN":"Stock","GOOGL":"Stock",
+  "GOOG":"Stock","AVGO":"Stock","META":"Stock","TSLA":"Stock","MU":"Stock",
+  "WMT":"Stock","AMD":"Stock","ASML":"Stock","INTC":"Stock","CSCO":"Stock",
+  "AMAT":"Stock","COST":"Stock","LRCX":"Stock","PLTR":"Stock","ARM":"Stock",
+  "NFLX":"Stock","PANW":"Stock","KLAC":"Stock","TXN":"Stock","LIN":"Stock",
+  "TMUS":"Stock","CRWD":"Stock","AMGN":"Stock","PEP":"Stock","STX":"Stock",
+  "ADI":"Stock","QCOM":"Stock","MRVL":"Stock","WDC":"Stock","GILD":"Stock",
+  "SHOP":"Stock","APP":"Stock","BKNG":"Stock","ISRG":"Stock","PDD":"Stock",
+  "VRTX":"Stock","SBUX":"Stock","FTNT":"Stock","ADP":"Stock","MAR":"Stock",
+  "DDOG":"Stock","MNST":"Stock","ADBE":"Stock","CSX":"Stock","MELI":"Stock",
+  "CDNS":"Stock","CEG":"Stock","ABNB":"Stock","CMCSA":"Stock","DASH":"Stock",
+  "CTAS":"Stock","INTU":"Stock","MDLZ":"Stock","ROST":"Stock","SNPS":"Stock",
+  "HON":"Stock","AEP":"Stock","REGN":"Stock","ORLY":"Stock","NXPI":"Stock",
+  "PCAR":"Stock","MPWR":"Stock","WBD":"Stock","FANG":"Stock","BKR":"Stock",
+  "EA":"Stock","TER":"Stock","FAST":"Stock","PYPL":"Stock","XEL":"Stock",
+  "ODFL":"Stock","EXC":"Stock","CCEP":"Stock","ADSK":"Stock","IDXX":"Stock",
+  "TTWO":"Stock","MCHP":"Stock","AXON":"Stock","KDP":"Stock","PAYX":"Stock",
+  "ROP":"Stock","ALNY":"Stock","WDAY":"Stock","KHC":"Stock","DXCM":"Stock",
+  "GEHC":"Stock","CPRT":"Stock",
+  // Indices (3)
+  "^GSPC":"Index","^NDX":"Index","^RUT":"Index",
 };
 
 // ── Helpers ──
@@ -108,8 +130,8 @@ app.get("/api/screener", async (req, res) => {
       const cat = ASSET_CAT[sym] || "";
       const row: any = { symbol: sym, signals: [] };
 
-      // ── Strategy 1: 5-EMA Filtered (Comm + Crypto + Stock) ──
-      if (cat !== "Forex") {
+      // ── Strategy 1: 5-EMA Filtered (Comm + Stock only — Crypto removed, overfitting risk) ──
+      if (cat === "Comm" || cat === "Stock" || cat === "Index") {
         const { alertCandles } = fiveEmaFiltered(c);
         const latest = alertCandles[alertCandles.length - 1];
         if (latest && latest.i >= c.length - 2) {
@@ -421,8 +443,8 @@ app.get("/api/playback", async (req, res) => {
           l: +bar.low.toFixed(5), c: +bar.close.toFixed(5),
         };
 
-        // 5-EMA Filtered (non-Forex)
-        if (cat !== "Forex") {
+        // 5-EMA Filtered (Comm + Stock only — Crypto hataya, overfitting risk)
+        if (cat === "Comm" || cat === "Stock" || cat === "Index") {
           const { alertCandles } = fiveEmaFiltered(upto);
           const latest = alertCandles[alertCandles.length - 1];
           if (latest && latest.i >= upto.length - 2) {

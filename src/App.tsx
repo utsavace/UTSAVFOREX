@@ -467,7 +467,6 @@ function CotDashboard() {
   const [cotData, setCotData] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [ran, setRan] = useState(false);
-  const [activeGroup, setActiveGroup] = useState<"largSpec"|"commercials"|"smallSpec">("largSpec");
   const COT_SYMS = ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X","USDCHF=X","NZDUSD=X","GC=F","SI=F","CL=F","HG=F","PL=F","BTC-USD","ETH-USD","^GSPC","^NDX","^RUT"];
 
   async function load() {
@@ -480,186 +479,140 @@ function CotDashboard() {
     setBusy(false); setRan(true);
   }
 
-  const mc = (i: number) => i >= 80 ? "#ef4444" : i <= 20 ? "#10b981" : "#94a3b8";
-  const ok = (d: any) => d && !d.error && d[activeGroup] && typeof d[activeGroup].index === "number";
+  const hasData = (d: any) => d && !d.error && d.largSpec && typeof d.largSpec.index === "number";
+  const biasColor = (idx: number) => idx >= 80 ? "#ef4444" : idx <= 20 ? "#10b981" : "#94a3b8";
+  const biasEmoji = (idx: number) => idx >= 80 ? "🔴" : idx <= 20 ? "🟢" : "🟡";
 
-  const getIdx = (d: any) => d[activeGroup]?.index ?? d.index ?? 50;
-  const getNet = (d: any) => d[activeGroup]?.net ?? d.net ?? 0;
-  const getBias = (d: any) => d[activeGroup]?.bias ?? d.bias ?? "neutral";
-  const getPct = (d: any) => d[activeGroup]?.pctLong ?? null;
-
-  const sortedData = [...cotData].filter(ok).sort((a,b) => {
-    const ai = getIdx(a), bi = getIdx(b);
+  const validData = cotData.filter(hasData).sort((a, b) => {
+    const ai = a.largSpec?.index ?? 50, bi = b.largSpec?.index ?? 50;
     const aScore = ai <= 20 ? ai : ai >= 80 ? 200 - ai : 100;
     const bScore = bi <= 20 ? bi : bi >= 80 ? 200 - bi : 100;
     return aScore - bScore;
   });
-  const extreme = sortedData.filter(d => { const i = getIdx(d); return i >= 80 || i <= 20; });
-  const neutral = sortedData.filter(d => { const i = getIdx(d); return i > 20 && i < 80; });
-  const failed  = cotData.filter(d => !ok(d));
+  const failed = cotData.filter(d => !hasData(d) && d.symbol);
 
-  const groupMeta = {
-    largSpec:    { label: "Large Speculators",  emoji: "🏦", desc: "Hedge funds & institutions — trend followers. Extreme = contrarian signal.", color: "#a78bfa" },
-    commercials: { label: "Commercials",         emoji: "🏭", desc: "Hedgers (farmers, oil cos, banks) — smart money. They hedge real business risk.", color: "#fbbf24" },
-    smallSpec:   { label: "Small Speculators",   emoji: "👤", desc: "Retail traders — usually wrong at extremes. Use as contrarian indicator.", color: "#60a5fa" },
-  };
-
-  const gm = groupMeta[activeGroup];
+  const groups = [
+    { key: "commercials", emoji: "🏭", label: "Commercials",       color: "#fbbf24" },
+    { key: "largSpec",    emoji: "🏦", label: "Large Speculators", color: "#a78bfa" },
+    { key: "smallSpec",   emoji: "👤", label: "Small Spec",        color: "#60a5fa" },
+  ];
 
   return (
     <section className="panel main-panel">
-      {/* Header */}
-      <div style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:12}}>
-          <button className={`run-btn ${busy?"loading":""}`} onClick={load} disabled={busy} style={{minWidth:180}}>
-            {busy ? "⏳ Fetching…" : "📡 Load COT Data"}
-          </button>
-          {ran && <span style={{fontSize:11,color:"#64748b"}}>CFTC · 52-week · Weekly Fri update</span>}
-        </div>
-
-        {/* Group Selector */}
-        {ran && (
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-            {(Object.entries(groupMeta) as [string, typeof gm][]).map(([key, meta]) => (
-              <button key={key}
-                onClick={() => setActiveGroup(key as any)}
-                style={{
-                  padding:"6px 14px", borderRadius:8, fontSize:12, cursor:"pointer",
-                  border:`1px solid ${activeGroup===key ? meta.color : "rgba(148,163,184,0.2)"}`,
-                  background: activeGroup===key ? `${meta.color}18` : "transparent",
-                  color: activeGroup===key ? meta.color : "#64748b",
-                  fontWeight: activeGroup===key ? 700 : 400,
-                  transition:"all 0.15s",
-                }}
-              >
-                {meta.emoji} {meta.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Group description */}
-        {ran && (
-          <div style={{fontSize:11,color:"#64748b",padding:"6px 10px",background:"rgba(255,255,255,0.02)",borderRadius:6,border:"1px solid rgba(148,163,184,0.08)",marginBottom:8}}>
-            <b style={{color:gm.color}}>{gm.emoji} {gm.label}:</b> {gm.desc}
-          </div>
-        )}
-
-        <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11}}>
-          <span style={{color:"#10b981"}}>■ 0–20% SHORT-crowded</span>
-          <span style={{color:"#94a3b8"}}>■ 21–79% Neutral</span>
-          <span style={{color:"#ef4444"}}>■ 80–100% LONG-crowded</span>
-        </div>
+      <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <button className={`run-btn ${busy?"loading":""}`} onClick={load} disabled={busy} style={{minWidth:180}}>
+          {busy ? "⏳ Fetching…" : "📡 Load COT Data"}
+        </button>
+        {ran && <span style={{fontSize:11,color:"#64748b"}}>CFTC · 52-week · Weekly Fri update</span>}
       </div>
 
-      {!ran && !busy && <div className="empty"><b>📡 Load COT Data</b> dabao — teeno groups dekhne ke liye</div>}
+      {ran && (
+        <div style={{display:"flex",gap:16,marginBottom:14,fontSize:11,flexWrap:"wrap"}}>
+          <span>🟢 SHORT-crowded (0–20%) → contrarian LONG signal</span>
+          <span>🟡 Neutral (21–79%)</span>
+          <span>🔴 LONG-crowded (80–100%) → contrarian SHORT signal</span>
+        </div>
+      )}
 
-      {/* Extreme section */}
-      {extreme.length > 0 && (
-        <div style={{marginBottom:18}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#fbbf24",marginBottom:10}}>⚡ EXTREME ({extreme.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
-            {extreme.map((d,i) => {
-              const idx = getIdx(d);
-              const net = getNet(d);
-              const pct = getPct(d);
-              const col = mc(idx);
-              const bg  = idx>=80?"rgba(239,68,68,0.07)":"rgba(16,185,129,0.07)";
-              const bdr = idx>=80?"rgba(239,68,68,0.22)":"rgba(16,185,129,0.22)";
-              return (
-                <div key={i} style={{background:bg,border:`1px solid ${bdr}`,borderRadius:10,padding:"12px 14px"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <span style={{fontWeight:700,fontSize:14}}>{NAME[d.symbol]||d.symbol}</span>
+      {!ran && !busy && (
+        <div className="empty">
+          <b>📡 Load COT Data</b> dabao<br/>
+          <span style={{fontSize:12,color:"#475569"}}>Teeno groups ek saath ek card mein dikhenge</span>
+        </div>
+      )}
+
+      {validData.length > 0 && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:12}}>
+          {validData.map((d, i) => {
+            const com = d.commercials;
+            const ls  = d.largSpec;
+            const sm  = d.smallSpec;
+            const strongSignal = com && ls &&
+              ((com.index <= 20 && ls.index >= 80) || (com.index >= 80 && ls.index <= 20));
+            const borderColor = strongSignal
+              ? (com.index <= 20 ? "#10b981" : "#ef4444")
+              : "rgba(148,163,184,0.15)";
+            return (
+              <div key={i} style={{
+                background:"#0a0f18",
+                border:`1px solid ${borderColor}`,
+                borderRadius:10,
+                padding:"12px 14px",
+              }}>
+                {/* Asset header */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <span style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>{NAME[d.symbol]||d.symbol}</span>
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    {strongSignal && (
+                      <span style={{fontSize:9,fontWeight:700,color:borderColor,border:`1px solid ${borderColor}`,borderRadius:4,padding:"1px 5px"}}>
+                        ⚡ SIGNAL
+                      </span>
+                    )}
                     <span style={{fontSize:10,color:CAT_COLOR[CAT[d.symbol]||""]||"#64748b",fontWeight:600}}>{CAT[d.symbol]||""}</span>
                   </div>
-                  {/* Meter */}
-                  <div style={{marginBottom:8}}>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#475569",marginBottom:3}}>
-                      <span style={{color:"#10b981"}}>◀ SHORT</span>
-                      <span style={{color:col,fontWeight:700}}>{getBias(d)} {idx}%</span>
-                      <span style={{color:"#ef4444"}}>LONG ▶</span>
-                    </div>
-                    <div style={{height:8,background:"rgba(255,255,255,0.06)",borderRadius:4,overflow:"hidden",position:"relative"}}>
-                      <div style={{position:"absolute",left:"20%",top:0,bottom:0,width:1,background:"rgba(16,185,129,0.35)"}} />
-                      <div style={{position:"absolute",left:"80%",top:0,bottom:0,width:1,background:"rgba(239,68,68,0.35)"}} />
-                      <div style={{width:`${Math.min(100,Math.max(0,idx))}%`,height:"100%",background:col}} />
-                    </div>
-                  </div>
-                  {/* Stats */}
-                  <div style={{display:"flex",gap:12,fontSize:10.5,color:"#64748b",marginBottom:6,flexWrap:"wrap"}}>
-                    <span>Net: <b style={{color:"#cbd5e1"}}>{net>0?"+":""}{net.toLocaleString()}</b></span>
-                    {pct!==null && <span>%Long: <b style={{color:pct>50?"#22c55e":"#ef4444"}}>{pct}%</b></span>}
-                    {d.weeks && <span>{d.weeks}w data</span>}
-                  </div>
-                  {/* All 3 groups mini summary */}
-                  {d.largSpec && d.commercials && d.smallSpec && (
-                    <div style={{borderTop:"1px solid rgba(148,163,184,0.1)",paddingTop:6,marginTop:2,display:"flex",gap:8,fontSize:9.5,flexWrap:"wrap"}}>
-                      <span style={{color:"#a78bfa"}}>🏦 LSpec: {d.largSpec.index}%</span>
-                      <span style={{color:"#fbbf24"}}>🏭 Comm: {d.commercials.index}%</span>
-                      <span style={{color:"#60a5fa"}}>👤 Small: {d.smallSpec.index}%</span>
-                    </div>
-                  )}
                 </div>
-              );
-            })}
-          </div>
+
+                {/* 3 rows — one per group */}
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                  {groups.map(g => {
+                    const grp = d[g.key];
+                    if (!grp) return null;
+                    const idx = grp.index ?? 50;
+                    const net = grp.net ?? 0;
+                    const col = biasColor(idx);
+                    return (
+                      <div key={g.key} style={{
+                        display:"grid",
+                        gridTemplateColumns:"140px 1fr 70px",
+                        alignItems:"center",
+                        gap:8,
+                        padding:"5px 8px",
+                        background:"rgba(255,255,255,0.025)",
+                        borderRadius:6,
+                        border:`1px solid ${idx>=80||idx<=20 ? col+"33" : "rgba(148,163,184,0.07)"}`,
+                      }}>
+                        <span style={{fontSize:11.5,color:g.color}}>{g.emoji} {g.label}</span>
+                        <span style={{fontFamily:"monospace",fontSize:11,color:"#64748b"}}>
+                          NET <b style={{color:net>0?"#22c55e":"#ef4444"}}>{net>0?"+":""}{net.toLocaleString()}</b>
+                        </span>
+                        <span style={{textAlign:"right",fontSize:11.5,fontWeight:700,color:col}}>
+                          {biasEmoji(idx)} {idx}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Signal explanation */}
+                {strongSignal && com && ls && (
+                  <div style={{
+                    marginTop:8,fontSize:10.5,padding:"4px 8px",borderRadius:5,
+                    background: com.index<=20?"rgba(16,185,129,0.08)":"rgba(239,68,68,0.08)",
+                    color: com.index<=20?"#10b981":"#ef4444",
+                    border:`1px solid ${com.index<=20?"rgba(16,185,129,0.2)":"rgba(239,68,68,0.2)"}`,
+                  }}>
+                    {com.index<=20
+                      ? "🟢 Commercials SHORT + Large Spec LONG → Reversal UP possible"
+                      : "🔴 Commercials LONG + Large Spec SHORT → Reversal DOWN possible"}
+                  </div>
+                )}
+
+                {d.weeks && <div style={{fontSize:9,color:"#334155",marginTop:6,textAlign:"right"}}>{d.weeks}w data</div>}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Neutral section */}
-      {neutral.length > 0 && (
-        <div>
-          <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>○ NEUTRAL ({neutral.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
-            {neutral.map((d,i) => {
-              const idx = getIdx(d);
-              const net = getNet(d);
-              return (
-                <div key={i} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(148,163,184,0.1)",borderRadius:8,padding:"10px 12px"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                    <span style={{fontWeight:600,fontSize:13}}>{NAME[d.symbol]||d.symbol}</span>
-                    <span style={{fontSize:10,color:"#475569"}}>{idx}%</span>
-                  </div>
-                  <div style={{height:5,background:"rgba(255,255,255,0.05)",borderRadius:3,overflow:"hidden",position:"relative"}}>
-                    <div style={{position:"absolute",left:"20%",top:0,bottom:0,width:1,background:"rgba(16,185,129,0.2)"}} />
-                    <div style={{position:"absolute",left:"80%",top:0,bottom:0,width:1,background:"rgba(239,68,68,0.2)"}} />
-                    <div style={{width:`${Math.min(100,Math.max(0,idx))}%`,height:"100%",background:"#475569"}} />
-                  </div>
-                  {/* Mini 3-group */}
-                  {d.largSpec && (
-                    <div style={{display:"flex",gap:6,fontSize:9,color:"#475569",marginTop:5,flexWrap:"wrap"}}>
-                      <span style={{color:"#a78bfa"}}>🏦{d.largSpec.index}%</span>
-                      <span style={{color:"#fbbf24"}}>🏭{d.commercials?.index}%</span>
-                      <span style={{color:"#60a5fa"}}>👤{d.smallSpec?.index}%</span>
-                      <span>Net:{net>0?"+":""}{net.toLocaleString()}</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {failed.length>0&&ran&&(
-        <div style={{marginTop:12}}>
-          <div style={{fontSize:11,color:"#475569",marginBottom:4}}>
-            ❌ {failed.length} assets ka COT data nahi mila:
-          </div>
-          {failed.slice(0,3).map((e,i)=>(
-            <div key={i} style={{fontSize:10.5,color:"#475569",fontFamily:"monospace"}}>
-              {NAME[e.symbol]||e.symbol}: {e.error||"no data"}
-            </div>
-          ))}
-          {failed.length>3 && <div style={{fontSize:10,color:"#374151"}}>...aur {failed.length-3} assets</div>}
-          <div style={{fontSize:10,color:"#374151",marginTop:4}}>
-            Note: CFTC COT data sirf futures markets ke liye available hai. Stocks ka data nahi hota.
-          </div>
+      {failed.length > 0 && ran && (
+        <div style={{marginTop:12,fontSize:10.5,color:"#374151"}}>
+          {failed.length} assets ka data nahi mila (CFTC futures only)
         </div>
       )}
     </section>
   );
 }
+
 
 export default function App() {
   const [tab, setTab]       = useState<"screener" | "playback" | "cot" | "journal">("screener");

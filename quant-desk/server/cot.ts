@@ -133,9 +133,15 @@ export async function fetchCot(symbol: string, weeks = 52): Promise<CotInfo | nu
 
   try {
     const res = await fetch(url, { headers: HEADERS });
-    if (!res.ok) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
+    if (!res.ok) {
+      console.error(`[COT] HTTP ${res.status} for ${symbol}: ${await res.text().catch(()=>"")}`);
+      cotCache.set(symbol, { at: Date.now(), info: null }); return null;
+    }
     const rows: any[] = await res.json();
-    if (!Array.isArray(rows) || !rows.length) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
+    if (!Array.isArray(rows) || !rows.length) {
+      console.error(`[COT] Empty response for ${symbol}, like="${like}"`);
+      cotCache.set(symbol, { at: Date.now(), info: null }); return null;
+    }
 
     // Group by market name → pick highest avg OI (main contract, not micro)
     const byMarket = new Map<string, CotRecord[]>();
@@ -164,7 +170,8 @@ export async function fetchCot(symbol: string, weeks = 52): Promise<CotInfo | nu
     const info = computeCot(best, m.invert, weeks);
     cotCache.set(symbol, { at: Date.now(), info });
     return info;
-  } catch {
+  } catch (e: any) {
+    console.error(`[COT] Exception for ${symbol}:`, e?.message);
     cotCache.set(symbol, { at: Date.now(), info: null });
     return null;
   }

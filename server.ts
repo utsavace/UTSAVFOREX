@@ -382,7 +382,11 @@ app.get("/api/cot-all", async (req, res) => {
     if (!cotSupported(sym)) { out.push({ symbol: sym, supported: false }); continue; }
     try {
       const cot = await fetchCot(sym, 52);
-      out.push({ symbol: sym, supported: true, ...cot });
+      if (!cot) {
+        out.push({ symbol: sym, supported: true, error: "API returned null — CFTC data unavailable or symbol not found in CFTC database" });
+      } else {
+        out.push({ symbol: sym, supported: true, ...cot });
+      }
     } catch (e: any) {
       out.push({ symbol: sym, supported: true, error: e?.message || "COT fetch failed" });
     }

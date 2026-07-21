@@ -1,36 +1,36 @@
 // COT (Commitments of Traders) — weekly CFTC positioning data
-// Source: CFTC Socrata public feed (publicreporting.cftc.gov)
-// Shows 3 groups: Commercials, Large Speculators, Small Speculators
+// Source: CFTC Socrata API (publicreporting.cftc.gov/resource/6dca-aqww.json)
+// 3 Groups: Large Speculators (NonComm), Commercials (Comm), Small Speculators (NonRept)
+//
+// EXACT field names from CFTC CSV header (case-insensitive in Socrata):
+// NonComm_Positions_Long_All, NonComm_Positions_Short_All  → Large Speculators
+// Comm_Positions_Long_All, Comm_Positions_Short_All        → Commercials
+// NonRept_Positions_Long_All, NonRept_Positions_Short_All  → Small Speculators
+// Open_Interest_All
 
 const HEADERS = { "User-Agent": "Mozilla/5.0", "Accept": "application/json" };
 const DATASET = "6dca-aqww";
 
 export interface CotRecord {
   date: string;
-  // Large Speculators (Non-Commercial) — hedge funds, institutions
-  ncLong: number; ncShort: number;
-  // Commercials — hedgers (farmers, oil cos, banks)
-  commLong: number; commShort: number;
-  // Small Speculators (Non-Reportable) — retail traders
-  smallLong: number; smallShort: number;
+  ncLong: number; ncShort: number;      // Large Speculators
+  commLong: number; commShort: number;  // Commercials
+  smLong: number; smShort: number;      // Small Speculators
   oi: number;
 }
 
 export interface CotGroupInfo {
-  net: number;          // net contracts (long - short)
-  index: number;        // 0-100 percentile vs last 52 weeks
-  pctLong: number;      // % of OI that is long
+  net: number;
+  index: number;
+  pctLong: number;
   bias: "LONG-crowded" | "SHORT-crowded" | "neutral" | "-";
 }
 
 export interface CotInfo {
-  // Large Speculators (hedge funds) — trend followers
   largSpec: CotGroupInfo;
-  // Commercials (smart money hedgers) — contrarian
   commercials: CotGroupInfo;
-  // Small Speculators (retail) — usually wrong at extremes
   smallSpec: CotGroupInfo;
-  // Legacy fields for backward compat
+  // Legacy fields (backward compat — uses largSpec)
   net: number; index: number;
   bias: "LONG-crowded" | "SHORT-crowded" | "neutral" | "-";
   contrarian: "LONG" | "SHORT" | "-";
@@ -62,34 +62,30 @@ export function cotSupported(symbol: string): boolean {
   return symbol in COT_MAP;
 }
 
-function computeGroup(nets: number[], latestNet: number, latestLong: number, latestOI: number): CotGroupInfo {
+function makeGroup(nets: number[], latest: number, longPos: number, oi: number): CotGroupInfo {
   const min = Math.min(...nets), max = Math.max(...nets);
-  const index = max > min ? Math.round(((latestNet - min) / (max - min)) * 100) : 50;
-  const pctLong = latestOI > 0 ? Math.round((latestLong / latestOI) * 100) : 50;
+  const index = max > min ? Math.round(((latest - min) / (max - min)) * 100) : 50;
+  const pctLong = oi > 0 ? Math.round((longPos / oi) * 100) : 50;
   let bias: CotGroupInfo["bias"] = "neutral";
   if (index >= 80) bias = "LONG-crowded";
   else if (index <= 20) bias = "SHORT-crowded";
-  return { net: Math.round(latestNet), index, pctLong, bias };
+  return { net: Math.round(latest), index, pctLong, bias };
 }
 
 export function computeCot(records: CotRecord[], invert = false, weeks = 52): CotInfo | null {
   if (!records || records.length < 10) return null;
-  const recent = records.slice(0, weeks);
-  const inv = invert ? -1 : 1;
+  const r = records.slice(0, weeks);
+  const s = invert ? -1 : 1;
 
-  // Large Speculators
-  const lsNets  = recent.map(r => (r.ncLong   - r.ncShort)   * inv);
-  // Commercials
-  const comNets = recent.map(r => (r.commLong  - r.commShort) * inv);
-  // Small Speculators
-  const smNets  = recent.map(r => (r.smallLong - r.smallShort)* inv);
+  const lsNets  = r.map(x => (x.ncLong   - x.ncShort)   * s);
+  const comNets = r.map(x => (x.commLong  - x.commShort) * s);
+  const smNets  = r.map(x => (x.smLong    - x.smShort)   * s);
 
-  const ls  = computeGroup(lsNets,  lsNets[0],  invert?recent[0].ncShort:recent[0].ncLong,   recent[0].oi);
-  const com = computeGroup(comNets, comNets[0], invert?recent[0].commShort:recent[0].commLong, recent[0].oi);
-  const sm  = computeGroup(smNets,  smNets[0],  invert?recent[0].smallShort:recent[0].smallLong, recent[0].oi);
+  const oi0 = r[0].oi;
+  const ls  = makeGroup(lsNets,  lsNets[0],  invert ? r[0].ncShort   : r[0].ncLong,   oi0);
+  const com = makeGroup(comNets, comNets[0], invert ? r[0].commShort  : r[0].commLong,  oi0);
+  const sm  = makeGroup(smNets,  smNets[0],  invert ? r[0].smShort    : r[0].smLong,    oi0);
 
-  // Legacy: use Large Speculators for backward compat
-  let bias: CotInfo["bias"] = ls.bias as CotInfo["bias"];
   let contrarian: "LONG" | "SHORT" | "-" = "-";
   if (ls.index >= 80) contrarian = "SHORT";
   else if (ls.index <= 20) contrarian = "LONG";
@@ -100,9 +96,9 @@ export function computeCot(records: CotRecord[], invert = false, weeks = 52): Co
     smallSpec: sm,
     net: ls.net,
     index: ls.index,
-    bias,
+    bias: ls.bias as CotInfo["bias"],
     contrarian,
-    weeks: recent.length,
+    weeks: r.length,
   };
 }
 
@@ -117,38 +113,44 @@ export async function fetchCot(symbol: string, weeks = 52): Promise<CotInfo | nu
   if (hit && Date.now() - hit.at < COT_TTL) return hit.info;
 
   const like = m.like.replace(/'/g, "");
+
+  // Exact Socrata field names from CFTC CSV (lowercase in JSON API)
   const url =
     `https://publicreporting.cftc.gov/resource/${DATASET}.json` +
-    `?$select=report_date_as_yyyy_mm_dd,market_and_exchange_names,` +
-    // Large Speculators
-    `noncomm_positions_long_all,noncomm_positions_short_all,` +
-    // Commercials
-    `comm_positions_long_all,comm_positions_short_all,` +
-    // Small Speculators (non-reportable)
-    `nonrept_positions_long_all,nonrept_positions_short_all,` +
-    `open_interest_all` +
+    `?$select=` +
+      `report_date_as_yyyy_mm_dd,` +
+      `market_and_exchange_names,` +
+      `noncomm_positions_long_all,` +
+      `noncomm_positions_short_all,` +
+      `comm_positions_long_all,` +
+      `comm_positions_short_all,` +
+      `nonrept_positions_long_all,` +
+      `nonrept_positions_short_all,` +
+      `open_interest_all` +
     `&$where=upper(market_and_exchange_names) like upper('%25${encodeURIComponent(like)}%25')` +
-    `&$order=report_date_as_yyyy_mm_dd DESC&$limit=${(weeks + 4) * 4}`;
+    `&$order=report_date_as_yyyy_mm_dd DESC` +
+    `&$limit=${(weeks + 4) * 4}`;
 
   try {
-    const r = await fetch(url, { headers: HEADERS });
-    if (!r.ok) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
-    const rows: any[] = await r.json();
+    const res = await fetch(url, { headers: HEADERS });
+    if (!res.ok) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
+    const rows: any[] = await res.json();
     if (!Array.isArray(rows) || !rows.length) { cotCache.set(symbol, { at: Date.now(), info: null }); return null; }
 
-    // Group by market name — pick highest OI (main contract)
+    // Group by market name → pick highest avg OI (main contract, not micro)
     const byMarket = new Map<string, CotRecord[]>();
     for (const x of rows) {
       const name = String(x.market_and_exchange_names || "?");
-      (byMarket.get(name) ?? byMarket.set(name, []).get(name)!).push({
-        date:       x.report_date_as_yyyy_mm_dd,
-        ncLong:     Number(x.noncomm_positions_long_all)  || 0,
-        ncShort:    Number(x.noncomm_positions_short_all) || 0,
-        commLong:   Number(x.comm_positions_long_all)     || 0,
-        commShort:  Number(x.comm_positions_short_all)    || 0,
-        smallLong:  Number(x.nonrept_positions_long_all)  || 0,
-        smallShort: Number(x.nonrept_positions_short_all) || 0,
-        oi:         Number(x.open_interest_all)           || 0,
+      if (!byMarket.has(name)) byMarket.set(name, []);
+      byMarket.get(name)!.push({
+        date:      x.report_date_as_yyyy_mm_dd,
+        ncLong:    Number(x.noncomm_positions_long_all)  || 0,
+        ncShort:   Number(x.noncomm_positions_short_all) || 0,
+        commLong:  Number(x.comm_positions_long_all)     || 0,
+        commShort: Number(x.comm_positions_short_all)    || 0,
+        smLong:    Number(x.nonrept_positions_long_all)  || 0,
+        smShort:   Number(x.nonrept_positions_short_all) || 0,
+        oi:        Number(x.open_interest_all)           || 0,
       });
     }
 
@@ -163,6 +165,7 @@ export async function fetchCot(symbol: string, weeks = 52): Promise<CotInfo | nu
     cotCache.set(symbol, { at: Date.now(), info });
     return info;
   } catch {
+    cotCache.set(symbol, { at: Date.now(), info: null });
     return null;
   }
 }

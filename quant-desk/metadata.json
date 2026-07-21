@@ -1,0 +1,6 @@
+{
+  "name": "Quant Desk",
+  "description": "React + Express (TypeScript) trading strategy optimizer, divergence scanner, and backtester using real market data from Yahoo Finance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

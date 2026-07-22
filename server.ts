@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
-import { fiveEmaFiltered, cryptoEMATrend, forexRSIMeanRev, trendAnalysis, channelBreakout5520 } from "./server/strategies";
+import { fiveEmaFiltered, cryptoEMATrend, forexRSIMeanRev, trendAnalysis, channelBreakout5520, connorsRSILong } from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
@@ -223,6 +223,27 @@ app.get("/api/screener", async (req, res) => {
             oosPF: cat === "Crypto" ? 1.91 : 1.25,
             winRate: cat === "Crypto" ? 27 : 22,
             note: `55-day ${r.live === "LONG" ? "high" : "low"} breakout · exit on 20-day breach · rejection rule`,
+          });
+        }
+      }
+
+      // ── Strategy 6: CRSI Long (ALL assets — Long only, no SL) ──
+      // CRSI(3,2,100) < 10 → BUY | Hold till CRSI > 90 → SELL
+      // OOS PF 2.12 | Win 68.5% | 8/10 years | Daily
+      {
+        const r = connorsRSILong(c);
+        if (r.signal && r.live === "LONG") {
+          row.signals.push({
+            strategy: "CRSI Long",
+            dir: "LONG",
+            entry: r.entry,
+            stop: null,  // No SL — hold till CRSI > 90
+            target: null, // No fixed TP — exit when CRSI > 90
+            rr: "No fixed TP/SL — exit at CRSI > 90",
+            oosPF: 2.12,
+            winRate: 68,
+            crsiVal: r.crsiVal,
+            note: r.note,
           });
         }
       }
@@ -495,6 +516,17 @@ app.get("/api/playback", async (req, res) => {
             dayFrame.signals.push({
               symbol: sym, strategy: "Channel 55/20", dir: r.live,
               entry: r.entry, stop: r.stop, target: r.target, rr: "Dynamic",
+            });
+          }
+        }
+        // CRSI Long (All assets)
+        {
+          const r = connorsRSILong(upto);
+          if (r.signal && r.live === "LONG") {
+            dayFrame.signals.push({
+              symbol: sym, strategy: "CRSI Long", dir: "LONG",
+              entry: r.entry, stop: null, target: null,
+              rr: "Exit at CRSI > 90", crsiVal: r.crsiVal,
             });
           }
         }

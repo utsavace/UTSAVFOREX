@@ -168,6 +168,9 @@ const STRAT_COLOR: Record<string, string> = {
   "5-EMA Filtered":    "#fbbf24",
   "Crypto EMA 20/50":  "#a78bfa",
   "Forex RSI 25/75":   "#34d399",
+  "Trend Analysis":    "#60a5fa",
+  "Channel 55/20":     "#f97316",
+  "CRSI Long":         "#e879f9",
 };
 
 const price = (v: any) => {
@@ -706,8 +709,8 @@ export default function App() {
         </div>
         <div className="mast-actions">
           <div className="gatestamp">
-            <span className="gate-label">4 STRATEGIES</span>
-            <span className="gate-rules">5-EMA · Forex RSI · Trend Analysis · Channel 55/20 · Daily</span>
+            <span className="gate-label">5 STRATEGIES</span>
+            <span className="gate-rules">5-EMA · Forex RSI · Trend Analysis · Channel 55/20 · CRSI Long · Daily</span>
           </div>
         </div>
       </header>
@@ -832,6 +835,7 @@ export default function App() {
                 { name: "Forex RSI 25/75",   oosPF: "1.34", win: "8%",  assets: "Forex (GBP/CHF/EUR)", rr: "1:3" },
                 { name: "Trend Analysis",    oosPF: "3.19", win: "30%", assets: "Crypto only",          rr: "1:3" },
                 { name: "Channel 55/20",     oosPF: "1.91", win: "27%", assets: "Crypto + Stock",       rr: "Dynamic" },
+                { name: "CRSI Long",         oosPF: "2.12", win: "69%", assets: "All assets",           rr: "Exit at CRSI>90" },
               ].map(s => (
                 <div key={s.name} className="strat-card" style={{ borderLeft: `3px solid ${STRAT_COLOR[s.name] || "#64748b"}` }}>
                   <span className="strat-name">{s.name}</span>

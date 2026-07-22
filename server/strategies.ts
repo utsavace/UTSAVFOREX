@@ -695,3 +695,73 @@ export function channelBreakout5520(c: Candle[]): {
 
   return { long, short, live, entry, stop, target, entryDays: ENTRY, exitDays: EXIT };
 }
+
+// ══════════════════════════════════════════════════════════════
+//  Strategy 6: CRSI Long — Buy when CRSI < 10, Sell when CRSI > 90
+//  Source: OOS tested 10yr daily, PF 2.12, Win 68.5%, 8/10 years
+//  Assets: ALL (Forex, Crypto, Comm, Stock) — Long only, no SL
+//  Entry: CRSI(3,2,100) drops below 10 → Buy next open
+//  Exit:  CRSI rises above 90 → Sell next open
+// ══════════════════════════════════════════════════════════════
+export function connorsRSILong(c: Candle[]): {
+  signal: boolean;
+  live: "LONG" | "-";
+  entry: number | null;
+  crsiVal: number | null;
+  note: string;
+} {
+  const cl = c.map(x => x.close);
+  const n  = cl.length;
+  if (n < 115) return { signal: false, live: "-", entry: null, crsiVal: null, note: "" };
+
+  // RSI(3)
+  const rsi3 = rsi(cl, 3);
+
+  // Up/Down Streak
+  const streak = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    if      (cl[i] > cl[i-1]) streak[i] = streak[i-1] >= 0 ? streak[i-1] + 1 :  1;
+    else if (cl[i] < cl[i-1]) streak[i] = streak[i-1] <= 0 ? streak[i-1] - 1 : -1;
+    else                       streak[i] = 0;
+  }
+  const streakRsi = rsi(streak, 2);
+
+  // Percent Rank (100-day lookback)
+  const pctRank = new Array(n).fill(NaN);
+  for (let i = 1; i < n; i++) {
+    const ret = cl[i] - cl[i-1];
+    const lb  = Math.min(i, 100);
+    let below = 0;
+    for (let k = 1; k <= lb; k++) below += (cl[i-k+1] - cl[i-k]) < ret ? 1 : 0;
+    pctRank[i] = (below / lb) * 100;
+  }
+
+  // CRSI = average of three
+  const crsiArr = rsi3.map((v, i) =>
+    !isNaN(v) && !isNaN(streakRsi[i]) && !isNaN(pctRank[i])
+      ? (v + streakRsi[i] + pctRank[i]) / 3
+      : NaN
+  );
+
+  const last  = n - 1;
+  const prev  = n - 2;
+  if (isNaN(crsiArr[last]) || isNaN(crsiArr[prev])) {
+    return { signal: false, live: "-", entry: null, crsiVal: null, note: "" };
+  }
+
+  const crsiNow  = crsiArr[last];
+  const crsiPrev = crsiArr[prev];
+
+  // Signal: CRSI crosses below 10 (was >= 10, now < 10)
+  if (crsiPrev >= 10 && crsiNow < 10) {
+    return {
+      signal: true,
+      live:   "LONG",
+      entry:  +cl[last].toFixed(5),
+      crsiVal: +crsiNow.toFixed(1),
+      note: `CRSI ${crsiNow.toFixed(1)} — extreme oversold. Hold till CRSI > 90`,
+    };
+  }
+
+  return { signal: false, live: "-", entry: null, crsiVal: +crsiNow.toFixed(1), note: "" };
+}

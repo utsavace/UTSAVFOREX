@@ -2,7 +2,6 @@ import fs from "fs";
 import path from "path";
 import type { Express } from "express";
 import { fetchHistory, type Candle } from "./market";
-import { walkForward, candidateSignals, divergence } from "./strategies";
 
 // ------------------------------------------------------------------ storage
 // JSON file store under ./data. NOTE: on Render free tier the disk is ephemeral —
@@ -198,40 +197,8 @@ export function registerJournalRoutes(app: Express) {
     res.json({ ok: true, dates: [...days].sort() });
   });
 
-  // Point-in-time snapshot: rebuild overview/optimize/divergence using ONLY candles <= date.
+  // Point-in-time snapshot disabled due to legacy refactor.
   app.get("/api/playback/snapshot", async (req, res) => {
-    const start = String(req.query.start || "2022-01-01");
-    const date = String(req.query.date || "");
-    const piv = Number(req.query.piv ?? 2);
-    const rsiP = Number(req.query.rsiP ?? 14);
-    const gate = gateOf(req);
-    if (!date) return res.json({ ok: false, error: "date chahiye" });
-
-    const optimize: any[] = [], divergenceRows: any[] = [], overview: any[] = [];
-    for (const sym of symbolsOf(req)) {
-      try {
-        const full = await fetchHistory(sym, startSec(start), "1d");
-        const c = full.filter((x) => dayOf(x.date) <= date);
-        if (c.length < 80) {
-          const e = { symbol: sym, error: "not enough data as of date" };
-          optimize.push(e); divergenceRows.push(e); overview.push(e); continue;
-        }
-        const opt = walkForward(c, candidateSignals(c), HOLD, ALLOW_SHORT, gate);
-        const { bull, bear } = divergence(c, rsiP, piv, piv);
-        const div = walkForward(c, [{ name: "RSI Divergence", long: bull, short: bear }], HOLD, ALLOW_SHORT, gate);
-        optimize.push(opt ? { symbol: sym, ...opt } : { symbol: sym, error: "no split" });
-        divergenceRows.push(div ? { symbol: sym, signals: bull.filter(Boolean).length + bear.filter(Boolean).length, ...div } : { symbol: sym, error: "no split" });
-        overview.push({
-          symbol: sym,
-          opt: opt && { strategy: opt.strategy, live: opt.live, isPF: opt.isPF, oosPF: opt.oosPF, qualified: opt.qualified, entry: opt.entry, stop: opt.stop, target: opt.target },
-          div: div && { live: div.live, oosPF: div.oosPF, qualified: div.qualified },
-          cot: null,
-        });
-      } catch (e: any) {
-        const er = { symbol: sym, error: e?.message || "fetch failed" };
-        optimize.push(er); divergenceRows.push(er); overview.push(er);
-      }
-    }
-    res.json({ ok: true, date, overview, optimize, divergence: divergenceRows });
+    res.json({ ok: false, error: "Snapshot endpoint disabled (legacy strategy refactor)." });
   });
 }

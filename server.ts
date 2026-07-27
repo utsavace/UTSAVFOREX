@@ -2,22 +2,27 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fetchHistory, type Candle } from "./server/market";
-import { fiveEmaFiltered, cryptoEMATrend, forexRSIMeanRev, trendAnalysis, channelBreakout5520, connorsRSILong } from "./server/strategies";
+import {
+  atrStretchReversion,
+  bbReversion,
+  rsi2MeanRev,
+  zScoreReversion,
+  maReversion,
+} from "./server/strategies";
 import { fetchCot, cotSupported } from "./server/cot";
 import { registerJournalRoutes } from "./server/journal";
 import { registerScoreBacktest } from "./server/scorebacktest";
 import { registerFundingTest } from "./server/funding";
 
-const app = express();
+const app  = express();
 app.use(express.json());
-const PORT = Number(process.env.PORT) || 3000;
+const PORT   = Number(process.env.PORT) || 3000;
 const isProd = process.env.NODE_ENV !== "development";
 
-// ── Journal storage ──
-const DATA_DIR = path.join(process.cwd(), "data");
+// ── Journal storage ──────────────────────────────────────────
+const DATA_DIR    = path.join(process.cwd(), "data");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const LIVE_JOURNAL = path.join(DATA_DIR, "mytrades.json");
-const PB_JOURNAL   = path.join(DATA_DIR, "playback_trades.json");
 
 interface JTrade {
   id: string; symbol: string; name?: string;
@@ -32,7 +37,7 @@ interface JTrade {
 const readJ  = (f: string): JTrade[] => { try { return JSON.parse(fs.readFileSync(f, "utf-8")); } catch { return []; } };
 const writeJ = (f: string, t: JTrade[]) => fs.writeFileSync(f, JSON.stringify(t, null, 2));
 
-// ── History cache ──
+// ── History cache ─────────────────────────────────────────────
 const histCache = new Map<string, { at: number; candles: Candle[] }>();
 async function getHistory(sym: string, startSec: number, interval = "1d"): Promise<Candle[]> {
   const key = `${sym}|${interval}|${startSec}`;
@@ -43,7 +48,7 @@ async function getHistory(sym: string, startSec: number, interval = "1d"): Promi
   return c;
 }
 
-// ── Asset categories (server-side — query parsing pe depend nahi) ──
+// ── Asset categories ──────────────────────────────────────────
 const ASSET_CAT: Record<string, string> = {
   // Forex (28)
   "EURUSD=X":"Forex","GBPUSD=X":"Forex","USDJPY=X":"Forex","USDCHF=X":"Forex",
@@ -59,7 +64,7 @@ const ASSET_CAT: Record<string, string> = {
   "AVAX-USD":"Crypto","DOT-USD":"Crypto",
   // Commodities (4)
   "GC=F":"Comm","SI=F":"Comm","HG=F":"Comm","PL=F":"Comm",
-  // Nasdaq 100 Stocks (92)
+  // Nasdaq 100 (92)
   "NVDA":"Stock","AAPL":"Stock","MSFT":"Stock","AMZN":"Stock","GOOGL":"Stock",
   "GOOG":"Stock","AVGO":"Stock","META":"Stock","TSLA":"Stock","MU":"Stock",
   "WMT":"Stock","AMD":"Stock","ASML":"Stock","INTC":"Stock","CSCO":"Stock",
@@ -83,7 +88,6 @@ const ASSET_CAT: Record<string, string> = {
   "^GSPC":"Index","^NDX":"Index","^RUT":"Index",
 };
 
-// ── Helpers ──
 const day = (d: string) => (d || "").slice(0, 10);
 function startSec(dateStr: string): number {
   const d = new Date((dateStr || "2021-01-01") + "T00:00:00Z");
@@ -94,22 +98,74 @@ function symbols(req: any): string[] {
   return String(req.query.symbols || "").split(",").map((s: string) => s.trim()).filter(Boolean);
 }
 
+// ── 5 Tier 1 strategy definitions ────────────────────────────
+const TIER1 = [
+  {
+    key:     "atr_stretch",
+    name:    "ATR Stretch Reversion",
+    fn:      atrStretchReversion,
+    oosPF:   2.48,
+    winRate: 55,
+    rr:      "1:2 (SL:2ATR, TP:SMA50)",
+    assets:  "All",
+    note:    "Close 1.5×ATR from SMA50 · range regime",
+  },
+  {
+    key:     "bb_reversion",
+    name:    "BB Reversion",
+    fn:      bbReversion,
+    oosPF:   3.53,
+    winRate: 64,
+    rr:      "1:2 (SL:2ATR, TP:BB mid)",
+    assets:  "All",
+    note:    "Close outside BB(20,2σ) · range regime",
+  },
+  {
+    key:     "rsi2_mean_rev",
+    name:    "RSI(2) Mean Rev",
+    fn:      rsi2MeanRev,
+    oosPF:   9.36,
+    winRate: 82,
+    rr:      "Exit RSI>70 / <30",
+    assets:  "All",
+    note:    "RSI(2)<5 above SMA200 · range regime",
+  },
+  {
+    key:     "zscore",
+    name:    "Z-Score ±2",
+    fn:      zScoreReversion,
+    oosPF:   5.33,
+    winRate: 73,
+    rr:      "1:2 (SL:2ATR, TP:SMA20)",
+    assets:  "All",
+    note:    "Z-score crosses ±2 · range regime",
+  },
+  {
+    key:     "ma_reversion",
+    name:    "MA Reversion",
+    fn:      maReversion,
+    oosPF:   2.91,
+    winRate: 59,
+    rr:      "1:2 (SL:2ATR, TP:SMA20)",
+    assets:  "All",
+    note:    "Close 2×ATR from SMA20 · range regime",
+  },
+];
+
 // ══════════════════════════════════════════════════════════
-//  /api/history — price chart data
+//  /api/history
 // ══════════════════════════════════════════════════════════
 app.get("/api/history", async (req, res) => {
   try {
-    const sym = String(req.query.symbol || "");
+    const sym   = String(req.query.symbol || "");
     const start = startSec(String(req.query.start || "2021-01-01"));
-    const c = await getHistory(sym, start, "1d");
+    const c     = await getHistory(sym, start, "1d");
     res.json({ symbol: sym, candles: c });
   } catch (e: any) { res.status(502).json({ error: e?.message || "fetch failed" }); }
 });
 
 // ══════════════════════════════════════════════════════════
-//  /api/screener — MAIN ENDPOINT
-//  Runs all 3 validated strategies on each asset
-//  Returns signals sorted by confidence
+//  /api/screener — 5 Tier 1 strategies, ADX regime filter
 // ══════════════════════════════════════════════════════════
 app.get("/api/screener", async (req, res) => {
   const start = startSec(String(req.query.start || "2021-01-01"));
@@ -121,142 +177,45 @@ app.get("/api/screener", async (req, res) => {
       const c = await getHistory(sym, start, "1d");
       if (c.length < 60) { out.push({ symbol: sym, error: "not enough data" }); continue; }
 
-      // ── COT (jo assets supported hain unke liye) ──
       let cot: any = null;
       if (cotSupported(sym)) {
         try { cot = await fetchCot(sym, 52); } catch { cot = null; }
       }
 
-      const cat = ASSET_CAT[sym] || "";
-      const row: any = { symbol: sym, signals: [] };
+      const row: any = { symbol: sym, signals: [], regime: "-" };
 
-      // ── Strategy 1: 5-EMA Filtered (Comm + Stock only — Crypto removed, overfitting risk) ──
-      if (cat === "Comm" || cat === "Stock" || cat === "Index") {
-        const { alertCandles } = fiveEmaFiltered(c);
-        const latest = alertCandles[alertCandles.length - 1];
-        if (latest && latest.i >= c.length - 2) {
-          // fired today or yesterday
-          row.signals.push({
-            strategy: "5-EMA Filtered",
-            dir: latest.dir,
-            entry: latest.entry,
-            stop: latest.stop,
-            target: latest.target,
-            rr: "1:5",
-            oosPF: 1.98,
-            winRate: 36,
-            note: "Alert candle extreme SL · EMA50 + body + ATR filtered",
-          });
-        }
-      }
-
-      // ── Strategy 2: Crypto EMA 20/50 (Crypto only) ──
-      if (cat === "Crypto") {
-        const r = cryptoEMATrend(c);
+      for (const strat of TIER1) {
+        const r = strat.fn(c);
         if (r.live !== "-") {
+          row.regime = r.regime;
           row.signals.push({
-            strategy: "Crypto EMA 20/50",
-            dir: r.live,
-            entry: r.entry,
-            stop: r.stop,
-            target: r.target,
-            rr: "1:3 (2ATR/3ATR)",
-            oosPF: 1.86,
-            winRate: 54,
-            note: "EMA20 cross EMA50 · trend following",
+            strategy:   strat.name,
+            stratKey:   strat.key,
+            dir:        r.live,
+            entry:      r.entry,
+            stop:       r.stop,
+            target:     r.target,
+            rr:         strat.rr,
+            oosPF:      strat.oosPF,
+            winRate:    strat.winRate,
+            note:       r.note,
+            rsiVal:     r.rsiVal,
+            zVal:       r.zVal,
+            regime:     r.regime,
           });
+        } else {
+          // Track regime even with no signal
+          if (r.regime !== "-") row.regime = r.regime;
         }
       }
 
-      // ── Strategy 3: Forex RSI 25/75 (Forex only) ──
-      if (cat === "Forex") {
-        const r = forexRSIMeanRev(c);
-        if (r.live !== "-") {
-          row.signals.push({
-            strategy: "Forex RSI 25/75",
-            dir: r.live,
-            entry: r.entry,
-            stop: r.stop,
-            target: r.target,
-            rr: "1:3 (2ATR/3ATR)",
-            oosPF: 1.85,
-            winRate: 60,
-            rsiVal: r.rsiVal,
-            note: `RSI ${r.rsiVal} crossed ${r.live === "LONG" ? "above 25" : "below 75"} · mean-reversion`,
-          });
-        }
-      }
-
-      // ── Strategy 4: Trend Analysis + Bishop Exit (Crypto only) ──
-      // Swing HH+HL → LONG | LL+LH → SHORT | Bishop exit (ADX>40 downtick)
-      // OOS PF 3.19 | 8/11 years | Best: XRP, DOGE, LINK, BTC, ADA
-      if (cat === "Crypto") {
-        const r = trendAnalysis(c);
-        if (r.live !== "-") {
-          row.signals.push({
-            strategy: "Trend Analysis",
-            dir: r.live,
-            entry: r.entry,
-            stop: r.stop,
-            target: r.target,
-            rr: "1:3 (trailing swing SL)",
-            oosPF: 3.19,
-            winRate: 30,
-            note: `Swing ${r.live === "LONG" ? "HH+HL breakout" : "LL+LH breakdown"} · Bishop ADX exit`,
-          });
-        }
-      }
-
-      // ── Strategy 5: Channel Breakout 55/20 (Crypto + Stock) ──
-      // 55-day breakout entry, 20-day exit (flat), rejection rule
-      // Crypto OOS PF 1.91 (9/10 yrs) | Stock OOS PF 1.25 (9/11 yrs)
-      if (cat === "Crypto" || cat === "Stock" || cat === "Index") {
-        const r = channelBreakout5520(c);
-        if (r.live !== "-") {
-          row.signals.push({
-            strategy: "Channel 55/20",
-            dir: r.live,
-            entry: r.entry,
-            stop: r.stop,
-            target: r.target,
-            rr: "Dynamic (55-day channel width)",
-            oosPF: cat === "Crypto" ? 1.91 : 1.25,
-            winRate: cat === "Crypto" ? 27 : 22,
-            note: `55-day ${r.live === "LONG" ? "high" : "low"} breakout · exit on 20-day breach · rejection rule`,
-          });
-        }
-      }
-
-      // ── Strategy 6: CRSI Long (ALL assets — Long only, no SL) ──
-      // CRSI(3,2,100) < 10 → BUY | Hold till CRSI > 90 → SELL
-      // OOS PF 2.12 | Win 68.5% | 8/10 years | Daily
-      {
-        const r = connorsRSILong(c);
-        if (r.signal && r.live === "LONG") {
-          row.signals.push({
-            strategy: "CRSI Long",
-            dir: "LONG",
-            entry: r.entry,
-            stop: null,  // No SL — hold till CRSI > 90
-            target: null, // No fixed TP — exit when CRSI > 90
-            rr: "No fixed TP/SL — exit at CRSI > 90",
-            oosPF: 2.12,
-            winRate: 68,
-            crsiVal: r.crsiVal,
-            note: r.note,
-          });
-        }
-      }
-
-      if (row.signals.length > 0) out.push({ ...row, cot });
-      else out.push({ symbol: sym, signals: [], cot }); // no signal today
-
+      out.push({ ...row, cot });
     } catch (e: any) {
       out.push({ symbol: sym, error: e?.message || "fetch failed" });
     }
   }
 
-  // Sort: errors last, then assets with signals first
+  // Signals wale pehle, then no-signal, then errors
   out.sort((a, b) => {
     if (a.error && !b.error) return 1;
     if (!a.error && b.error) return -1;
@@ -267,8 +226,86 @@ app.get("/api/screener", async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════
-//  JOURNAL ROUTES
+//  /api/strategies — metadata for UI dashboard modules
 // ══════════════════════════════════════════════════════════
+app.get("/api/strategies", (_req, res) => {
+  res.json(TIER1.map(s => ({
+    key:     s.key,
+    name:    s.name,
+    oosPF:   s.oosPF,
+    winRate: s.winRate,
+    rr:      s.rr,
+    assets:  s.assets,
+    note:    s.note,
+  })));
+});
+
+// ══════════════════════════════════════════════════════════
+//  /api/playback — historical replay
+// ══════════════════════════════════════════════════════════
+app.get("/api/playback", async (req, res) => {
+  const syms      = symbols(req);
+  const fromDate  = String(req.query.from || "");
+  const daysAhead = Math.min(120, Math.max(5, Number(req.query.days) || 60));
+  const histStart = startSec("2021-01-01");
+
+  if (!fromDate) return res.json({ error: "from date required" });
+
+  try {
+    const assetData: Record<string, Candle[]> = {};
+    for (const sym of syms) {
+      try {
+        const c = await getHistory(sym, histStart, "1d");
+        if (c.length >= 60) assetData[sym] = c;
+      } catch { /* skip */ }
+    }
+
+    const anySym = Object.keys(assetData)[0];
+    if (!anySym) return res.json({ error: "no data" });
+
+    const refCandles = assetData[anySym];
+    const startIdx   = refCandles.findIndex((c) => day(c.date) >= fromDate);
+    if (startIdx === -1) return res.json({ error: "date out of range" });
+
+    const frames: any[] = [];
+    const endIdx = Math.min(refCandles.length - 1, startIdx + daysAhead);
+
+    for (let di = startIdx; di <= endIdx; di++) {
+      const curDate  = day(refCandles[di].date);
+      const dayFrame: any = { date: curDate, signals: [], ohlc: {} };
+
+      for (const sym of Object.keys(assetData)) {
+        const full = assetData[sym];
+        const upto = full.filter((c) => day(c.date) <= curDate);
+        if (upto.length < 60) continue;
+
+        const bar = upto[upto.length - 1];
+        dayFrame.ohlc[sym] = {
+          o: +bar.open.toFixed(5), h: +bar.high.toFixed(5),
+          l: +bar.low.toFixed(5),  c: +bar.close.toFixed(5),
+        };
+
+        for (const strat of TIER1) {
+          const r = strat.fn(upto);
+          if (r.live !== "-") {
+            dayFrame.signals.push({
+              symbol: sym, strategy: strat.name, stratKey: strat.key,
+              dir: r.live, entry: r.entry, stop: r.stop, target: r.target,
+              rr: strat.rr, regime: r.regime, note: r.note,
+            });
+          }
+        }
+      }
+      frames.push(dayFrame);
+    }
+
+    res.json({ from: fromDate, frames });
+  } catch (e: any) {
+    res.json({ error: e?.message || "playback failed" });
+  }
+});
+
+// ── Journal ───────────────────────────────────────────────────
 const upTo = (c: Candle[], asOf: string) => c.filter((x) => day(x.date) <= asOf);
 
 function resolveTrade(t: JTrade, candles: Candle[], asOf: string | null): boolean {
@@ -276,27 +313,16 @@ function resolveTrade(t: JTrade, candles: Candle[], asOf: string | null): boolea
   if (!series.length) return false;
   let changed = false;
   const dir = t.direction === "SHORT" ? -1 : 1;
-
   if (t.status === "PENDING") {
     const last = series[series.length - 1];
     t.currentPrice = +last.close.toFixed(5);
-    // Check: SL already breached before entry? Mark invalid.
-    if (dir === 1 && last.close <= t.stopPrice) {
-      t.status = "SL_HIT"; t.exitPrice = +last.close.toFixed(5);
-      t.exitDate = day(last.date); t.returnPct = -100; return true;
-    }
-    if (dir === -1 && last.close >= t.stopPrice) {
-      t.status = "SL_HIT"; t.exitPrice = +last.close.toFixed(5);
-      t.exitDate = day(last.date); t.returnPct = -100; return true;
-    }
     const ref = t.takenAsOf || day(t.takenAt);
     const idx = series.findIndex((c) => day(c.date) > ref);
-    if (idx === -1) { return false; }
+    if (idx === -1) return false;
     t.entryDate = day(series[idx].date);
     t.entryPrice = +series[idx].open.toFixed(5);
     t.status = "OPEN"; changed = true;
   }
-
   if (t.status !== "OPEN" || t.entryDate == null || t.entryPrice == null) return changed;
   const startIdx = series.findIndex((c) => day(c.date) >= (t.entryDate as string));
   if (startIdx === -1) return changed;
@@ -353,8 +379,7 @@ function journalRoutes(base: string, file: string) {
       symbol: String(b.symbol), name: b.name,
       direction: b.direction === "SHORT" ? "SHORT" : "LONG",
       strategyLabel: b.strategyLabel, module: b.module,
-      takenAt: new Date().toISOString(),
-      takenAsOf: day(new Date().toISOString()),
+      takenAt: new Date().toISOString(), takenAsOf: day(new Date().toISOString()),
       entryDate: null, entryPrice: null,
       stopPrice: +b.stop, targetPrice: +b.target, status: "PENDING",
     };
@@ -376,8 +401,8 @@ function journalRoutes(base: string, file: string) {
     const px = +exitPrice;
     if (!isFinite(px) || px <= 0) return res.json({ ok: false, error: "valid exit price do" });
     const dir = t.direction === "SHORT" ? -1 : 1;
-    const xd = day(new Date().toISOString());
-    t.status = "CLOSED_MANUAL"; t.exitPrice = +px.toFixed(5); t.exitDate = xd;
+    t.status = "CLOSED_MANUAL"; t.exitPrice = +px.toFixed(5);
+    t.exitDate = day(new Date().toISOString());
     t.returnPct = +((dir === 1 ? (px - (t.entryPrice as number)) / (t.entryPrice as number) : ((t.entryPrice as number) - px) / (t.entryPrice as number)) * 100).toFixed(2);
     writeJ(file, trades);
     res.json({ ok: true, trade: t, trades });
@@ -390,12 +415,11 @@ function journalRoutes(base: string, file: string) {
 }
 
 journalRoutes("/api/trades", LIVE_JOURNAL);
-
 registerJournalRoutes(app);
 registerScoreBacktest(app);
 registerFundingTest(app);
 
-// ── Standalone COT endpoint — sabhi supported assets ──
+// ── COT ──────────────────────────────────────────────────────
 app.get("/api/cot-all", async (req, res) => {
   const syms = String(req.query.symbols || "").split(",").map(s => s.trim()).filter(Boolean);
   const out: any[] = [];
@@ -403,11 +427,7 @@ app.get("/api/cot-all", async (req, res) => {
     if (!cotSupported(sym)) { out.push({ symbol: sym, supported: false }); continue; }
     try {
       const cot = await fetchCot(sym, 52);
-      if (!cot) {
-        out.push({ symbol: sym, supported: true, error: "API returned null — CFTC data unavailable or symbol not found in CFTC database" });
-      } else {
-        out.push({ symbol: sym, supported: true, ...cot });
-      }
+      out.push(cot ? { symbol: sym, supported: true, ...cot } : { symbol: sym, supported: true, error: "no data" });
     } catch (e: any) {
       out.push({ symbol: sym, supported: true, error: e?.message || "COT fetch failed" });
     }
@@ -415,132 +435,7 @@ app.get("/api/cot-all", async (req, res) => {
   res.json(out);
 });
 
-// ══════════════════════════════════════════════════════════
-//  /api/playback — Market replay
-//  Ek date range ke har din ke signals precompute karke bhejta hai
-//  Client day-by-day autoplay karta hai
-// ══════════════════════════════════════════════════════════
-app.get("/api/playback", async (req, res) => {
-  const syms = symbols(req);
-  const fromDate = String(req.query.from || "");   // playback start date YYYY-MM-DD
-  const daysAhead = Math.min(120, Math.max(5, Number(req.query.days) || 60));
-  const histStart = startSec("2021-01-01"); // strategies need long history
-
-  if (!fromDate) return res.json({ error: "from date required" });
-
-  try {
-    // Har asset ka full history load karo
-    const assetData: Record<string, Candle[]> = {};
-    for (const sym of syms) {
-      try {
-        const c = await getHistory(sym, histStart, "1d");
-        if (c.length >= 60) assetData[sym] = c;
-      } catch { /* skip */ }
-    }
-
-    // fromDate ka index nikaalo (koi bhi ek asset se — common timeline)
-    const anySym = Object.keys(assetData)[0];
-    if (!anySym) return res.json({ error: "no data" });
-
-    // Build timeline of trading days from fromDate onward
-    const refCandles = assetData[anySym];
-    const startIdx = refCandles.findIndex((c) => day(c.date) >= fromDate);
-    if (startIdx === -1) return res.json({ error: "date out of range" });
-
-    const frames: any[] = [];
-    const endIdx = Math.min(refCandles.length - 1, startIdx + daysAhead);
-
-    for (let di = startIdx; di <= endIdx; di++) {
-      const curDate = day(refCandles[di].date);
-      const dayFrame: any = { date: curDate, signals: [], ohlc: {} };
-
-      for (const sym of Object.keys(assetData)) {
-        const full = assetData[sym];
-        // us date tak ka data slice karo (as-of)
-        const upto = full.filter((c) => day(c.date) <= curDate);
-        if (upto.length < 60) continue;
-
-        const cat = ASSET_CAT[sym] || "";
-        const bar = upto[upto.length - 1];
-        // OHLC bhejo — client SL/TP resolve kar sake
-        dayFrame.ohlc[sym] = {
-          o: +bar.open.toFixed(5), h: +bar.high.toFixed(5),
-          l: +bar.low.toFixed(5), c: +bar.close.toFixed(5),
-        };
-
-        // 5-EMA Filtered (Comm + Stock only — Crypto hataya, overfitting risk)
-        if (cat === "Comm" || cat === "Stock" || cat === "Index") {
-          const { alertCandles } = fiveEmaFiltered(upto);
-          const latest = alertCandles[alertCandles.length - 1];
-          if (latest && latest.i >= upto.length - 2) {
-            dayFrame.signals.push({
-              symbol: sym, strategy: "5-EMA Filtered", dir: latest.dir,
-              entry: latest.entry, stop: latest.stop, target: latest.target, rr: "1:5",
-            });
-          }
-        }
-        // Crypto EMA
-        if (cat === "Crypto") {
-          const r = cryptoEMATrend(upto);
-          if (r.live !== "-") {
-            dayFrame.signals.push({
-              symbol: sym, strategy: "Crypto EMA 20/50", dir: r.live,
-              entry: r.entry, stop: r.stop, target: r.target, rr: "1:3",
-            });
-          }
-        }
-        // Forex RSI
-        if (cat === "Forex") {
-          const r = forexRSIMeanRev(upto);
-          if (r.live !== "-") {
-            dayFrame.signals.push({
-              symbol: sym, strategy: "Forex RSI 25/75", dir: r.live,
-              entry: r.entry, stop: r.stop, target: r.target, rr: "1:3", rsiVal: r.rsiVal,
-            });
-          }
-        }
-        // Trend Analysis (Crypto)
-        if (cat === "Crypto") {
-          const r = trendAnalysis(upto);
-          if (r.live !== "-") {
-            dayFrame.signals.push({
-              symbol: sym, strategy: "Trend Analysis", dir: r.live,
-              entry: r.entry, stop: r.stop, target: r.target, rr: "1:3",
-            });
-          }
-        }
-        // Channel 55/20 (Crypto + Stock)
-        if (cat === "Crypto" || cat === "Stock" || cat === "Index") {
-          const r = channelBreakout5520(upto);
-          if (r.live !== "-") {
-            dayFrame.signals.push({
-              symbol: sym, strategy: "Channel 55/20", dir: r.live,
-              entry: r.entry, stop: r.stop, target: r.target, rr: "Dynamic",
-            });
-          }
-        }
-        // CRSI Long (All assets)
-        {
-          const r = connorsRSILong(upto);
-          if (r.signal && r.live === "LONG") {
-            dayFrame.signals.push({
-              symbol: sym, strategy: "CRSI Long", dir: "LONG",
-              entry: r.entry, stop: null, target: null,
-              rr: "Exit at CRSI > 90", crsiVal: r.crsiVal,
-            });
-          }
-        }
-      }
-      frames.push(dayFrame);
-    }
-
-    res.json({ from: fromDate, frames });
-  } catch (e: any) {
-    res.json({ error: e?.message || "playback failed" });
-  }
-});
-
-// ── Boot ──
+// ── Boot ──────────────────────────────────────────────────────
 async function start() {
   if (!isProd) {
     const { createServer } = await import("vite");
